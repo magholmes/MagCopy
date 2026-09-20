@@ -9,13 +9,15 @@ Both shortcuts are rebindable. Windows only.
 
 ![MagCopy](docs/window.png)
 
+*dusk, one of five palettes — also night, ember, tide and paper.*
+
 ## Install
 
 MagCopy needs Python 3.9+ with `numpy` and `Pillow`, and three external encoders.
 
 ```bash
-git clone https://github.com/USER/REPO.git
-cd REPO/MagCopy
+git clone https://github.com/magnusholmes-cmyk/MagCopy.git
+cd MagCopy
 python -m pip install -r requirements.txt
 python tools/fetch_binaries.py      # downloads ffmpeg, gifski and gifsicle into ./bin
 ```
@@ -91,7 +93,7 @@ The result is a single `dist\MagCopy.exe` with the fonts and encoders inside it 
 
 ## Look and feel
 
-Are.na's colour ladders, the layout language of the magnus archive site — hairlines, Geist and Geist Mono, lowercase mono labels, pill controls — in a frameless, rounded window. Same as [Opmize](../Opmize), which is where the design came from. Rounded corners need Windows 11; on Windows 10 they stay square.
+Are.na's colour ladders, the layout language of the magnus archive site — hairlines, Geist and Geist Mono, lowercase mono labels, pill controls — in a frameless, rounded window. Same as [Opmize](https://github.com/magnusholmes-cmyk/Opmize), which is where the design came from. Rounded corners need Windows 11; on Windows 10 they stay square.
 
 ## Licences
 
@@ -112,3 +114,14 @@ They are not bundled in this repository; `tools/fetch_binaries.py` downloads the
 - GDI capture cannot see fullscreen-exclusive games or some GPU-composited surfaces; those come out black.
 - A shortcut already owned by another application will fail to register. MagCopy says so and keeps the previous one.
 - Long recordings at high resolution take a while to encode. The status line tells you what it is trying.
+
+## Tests
+
+```bash
+python tools/run_all_tests.py
+```
+
+Seven smoke tests, about five minutes. They drive the real region selector, measure recording
+pace against the wall clock, walk every theme and window size, run a real recording through the
+editor and out the other side as a GIF, and check the emitted GIF by parsing its block structure
+rather than trusting the encoder.
