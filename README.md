@@ -10,7 +10,7 @@ Both shortcuts are rebindable. Windows only.
 <p>
   <a href="https://github.com/magholmes/MagCopy/releases/latest/download/MagCopy.exe">
     <img alt="Download MagCopy for Windows"
-         src="https://img.shields.io/badge/download-MagCopy.exe-E7DBF0?style=for-the-badge&labelColor=16171E&color=4F4756&logo=windows&logoColor=E7DBF0"></a>
+         src="https://img.shields.io/badge/download-MagCopy.exe-5E6DEE?style=for-the-badge&labelColor=16171E&color=5E6DEE&logo=windows&logoColor=white"></a>
 </p>
 
 One file, nothing to install. Double-click it and the shortcuts start working; it lives in the
