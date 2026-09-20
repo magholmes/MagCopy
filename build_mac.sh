@@ -50,6 +50,11 @@ rm -rf build dist
 APP="$ROOT/dist/MagCopy.app"
 PLIST="$APP/Contents/Info.plist"
 
+# PyInstaller writes 0.0.0 unless told otherwise, and that is the number Finder shows in Get Info
+# and the one a crash report carries. Take it from the app itself so there is only one to change.
+VERSION="$("$PY" -c 'import sys; sys.path.insert(0, "'"$ROOT"'"); from magcopy.settings import APP_VERSION; print(APP_VERSION)')"
+echo "version $VERSION"
+
 # LSUIElement: no Dock icon and no entry in the app switcher. MagCopy is a menu bar app that
 # spends most of its life with no window open, and a Dock icon for it would be a lie.
 /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" "$PLIST" 2>/dev/null || \
@@ -61,6 +66,10 @@ PLIST="$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 12.3" "$PLIST" 2>/dev/null || \
   /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 12.3" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :LSApplicationCategoryType string public.app-category.utilities" "$PLIST" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VERSION" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$PLIST" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $VERSION" "$PLIST"
 
 chmod +x "$APP/Contents/Resources/bin/"* 2>/dev/null || true
 chmod +x "$APP/Contents/Frameworks/bin/"* 2>/dev/null || true
