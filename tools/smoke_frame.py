@@ -9,7 +9,7 @@ from magcopy.recorder import RecordFrame
 win.set_dpi_aware(); register_fonts()
 root = tk.Tk(); root.withdraw()
 theme, fonts = Theme("dusk"), Fonts(root, 1.0)
-want = theme.c["error"]
+want = theme.c["record"]
 wr, wg, wb = int(want[1:3], 16), int(want[3:5], 16), int(want[5:7], 16)
 print("expecting the frame colour", want, (wr, wg, wb))
 
@@ -27,13 +27,19 @@ shot = win.grab_once(x - 6, y - 6, w_ + 12, h_ + 12)      # a little margin arou
 rgb = shot[:, :, 2::-1].astype(int)
 
 def near(px):
-    return abs(px[0] - wr) < 26 and abs(px[1] - wg) < 26 and abs(px[2] - wb) < 26
+    """The corners are opaque; the continuous edge is drawn at low alpha, so it composites with
+    whatever is behind it. Test the edge for a clear red shift rather than for an exact colour."""
+    r, g, b = int(px[0]), int(px[1]), int(px[2])
+    if abs(r - wr) < 26 and abs(g - wg) < 26 and abs(b - wb) < 26:
+        return True                                  # solid: a corner bracket
+    return r > g + 24 and r > b + 24 and r > 55      # blended: the soft edge
 
 samples = {
-    "top edge":    rgb[6 - t + 0, 6 + w_ // 2],
-    "bottom edge": rgb[6 + h_ + 0, 6 + w_ // 2],
-    "left edge":   rgb[6 + h_ // 2, 6 - t + 0],
-    "right edge":  rgb[6 + h_ // 2, 6 + w_ + 0],
+    "top edge":       rgb[5, 6 + w_ // 2],
+    "bottom edge":    rgb[6 + h_ + 0, 6 + w_ // 2],
+    "left edge":      rgb[6 + h_ // 2, 5],
+    "right edge":     rgb[6 + h_ // 2, 6 + w_ + 0],
+    "corner bracket": rgb[3, 22],
 }
 ok = True
 for name, px in samples.items():

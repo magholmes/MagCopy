@@ -93,7 +93,9 @@ The finished GIF goes on the clipboard as a *file*, so Ctrl+V in Discord attache
 
 ## While recording
 
-A thin frame marks the region for the length of the recording, with a timer and stop/cancel beside it. The frame sits *outside* the captured rectangle and is click-through, so it never appears in the GIF and never eats a click meant for the app you are recording. Turn it off with the `show frame` toggle.
+A viewfinder marks the region for the length of the recording: a soft hairline edge stating where the boundary is, solid brackets at the four corners, and a small bar with the elapsed time and stop/cancel. The weight is in the corners rather than in the line, so the region reads as framed without a red box sitting on top of whatever you are recording.
+
+Every piece sits *outside* the captured rectangle and is click-through, so none of it can appear in the GIF and none of it eats a click meant for the app you are recording. Turn it off with the `show frame` toggle.
 
 ## Editing
 

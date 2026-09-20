@@ -1,5 +1,10 @@
 """Look and feel: palettes, fonts and the widget set.
 
+One colour is deliberately not from the palette: `record`, the frame drawn around a region while
+it is being recorded. Every other colour is chosen to sit back; that one has to be legible against
+whatever happens to be on screen, so it is a red in every theme - warmed off pure signal-red, and
+carried mostly by the corner brackets rather than by weight.
+
 The design language is the one from Opmize - Are.na's colour ladders, hairlines, Geist and
 Geist Mono, lowercase mono labels, pill controls - with the palette made switchable so the
 theme is a setting rather than a constant. Every widget registers with the Theme and gets a
@@ -14,20 +19,20 @@ FONT_DIR = os.path.join(APP_DIR, "fonts")
 
 
 # ----------------------------------------------------------------------------- palettes
-def _dark(ladder, focus, error, ok):
+def _dark(ladder, focus, error, ok, record="#F2564B"):
     """Map an 8-step dark ladder (0 = background, 7 = foreground) onto the semantic names."""
     g = ladder
     return dict(bg=g[0], bg2=g[1], hair=g[2], hair_soft=g[1], ink=g[7], ink2=g[6],
                 mute=g[5], mute2=g[4], paper_ink=g[0], focus=focus, error=error, ok=ok,
-                shade=g[0], sel_fill=g[1])
+                record=record, shade=g[0], sel_fill=g[1])
 
 
-def _light(ladder, focus, error, ok):
+def _light(ladder, focus, error, ok, record="#E0453B"):
     """Same ladder read the other way: 0 is the paper, 7 the ink."""
     g = ladder
     return dict(bg=g[0], bg2=g[1], hair=g[2], hair_soft=g[1], ink=g[7], ink2=g[6],
                 mute=g[5], mute2=g[4], paper_ink=g[0], focus=focus, error=error, ok=ok,
-                shade=g[7], sel_fill=g[1])
+                record=record, shade=g[7], sel_fill=g[1])
 
 
 THEMES = {

@@ -4,8 +4,9 @@ The recording master is deliberately over-good: yuv444p x264 at a low CRF. Every
 pipeline does later is a reduction, so the master is the one place where quality must not be
 thrown away - and for screen content 4:4:4 is what keeps text edges from smearing.
 
-The frame you see while recording is four thin, click-through windows placed *outside* the
-captured rectangle, so it guides the eye without ever appearing in the recording.
+The frame you see while recording is a set of click-through strips placed *outside* the captured
+rectangle - a soft hairline edge with solid viewfinder brackets at the corners - so it shows you
+exactly what is being recorded without ever appearing in the recording, and without shouting.
 
 Borrowed from OBS
   * A 1 ms system timer for the duration of the capture. Windows' default scheduling granularity
@@ -40,9 +41,9 @@ from .theme import Label, Panel, round_rect
 class RecordFrame:
     """The border drawn around the region while recording, plus the little control bar.
 
-    The four edge strips sit just outside the capture rectangle and are click-through, so the
-    app being recorded still receives every click. The control bar is not click-through - it is
-    how you stop - and it is also placed clear of the captured area.
+    Every strip sits just outside the capture rectangle and is click-through, so the app being
+    recorded still receives every click and nothing red can land in a frame. The control bar is
+    not click-through - it is how you stop - and it is also placed clear of the captured area.
     """
 
     BAR_H = 34
@@ -58,18 +59,41 @@ class RecordFrame:
         self.dot = None
         self._dot_on = True
 
+    EDGE_ALPHA = 90             # the continuous edge is a whisper...
+    CORNER_ALPHA = 255          # ...the corners are what you actually read
+
     def show(self):
+        """A soft continuous edge with crisp viewfinder brackets at the corners.
+
+        Every piece sits strictly outside the captured rectangle, so none of it can end up in the
+        recording - that is why this is strips rather than one outlined window.
+
+        The look comes from the hierarchy rather than from weight. A uniformly bold red box is
+        easy to see and looks like a warning; here the full edge is one thin, mostly transparent
+        line that just states where the boundary is, and only the four corner brackets are solid.
+        The eye reads the corners and infers the rectangle, which is how a viewfinder works - and
+        it leaves whatever is being recorded visually undisturbed.
+        """
         x, y, wd, ht = self.rect
-        t = max(2, int(2 * self.s))
+        t = max(1, int(round(1.5 * self.s)))                            # hairline edge
+        ct = max(3, int(round(3 * self.s)))                             # bracket thickness
+        cl = max(16, min(int(min(wd, ht) * 0.15), int(42 * self.s)))    # bracket arm length
         c = self.c
-        for ex, ey, ew, eh in ((x - t, y - t, wd + 2 * t, t),          # top
-                               (x - t, y + ht, wd + 2 * t, t),         # bottom
-                               (x - t, y, t, ht),                      # left
-                               (x + wd, y, t, ht)):                    # right
-            self.windows.append(self._strip(ex, ey, ew, eh, c["error"]))
+        red = c.get("record", c["error"])
+        for ex, ey, ew, eh in ((x - t, y - t, wd + 2 * t, t),           # top
+                               (x - t, y + ht, wd + 2 * t, t),          # bottom
+                               (x - t, y, t, ht),                       # left
+                               (x + wd, y, t, ht)):                     # right
+            self.windows.append(self._strip(ex, ey, ew, eh, red, self.EDGE_ALPHA))
+        for ex, ey, ew, eh in (
+                (x - ct, y - ct, cl + ct, ct), (x - ct, y - ct, ct, cl + ct),           # top-left
+                (x + wd - cl, y - ct, cl + ct, ct), (x + wd, y - ct, ct, cl + ct),      # top-right
+                (x - ct, y + ht, cl + ct, ct), (x - ct, y + ht - cl, ct, cl + ct),      # bottom-left
+                (x + wd - cl, y + ht, cl + ct, ct), (x + wd, y + ht - cl, ct, cl + ct)):  # bottom-right
+            self.windows.append(self._strip(ex, ey, ew, eh, red, self.CORNER_ALPHA))
         self._build_bar()
 
-    def _strip(self, x, y, wd, ht, color):
+    def _strip(self, x, y, wd, ht, color, alpha=255):
         w_ = tk.Toplevel(self.root)
         w_.withdraw()
         w_.overrideredirect(True)
@@ -78,7 +102,7 @@ class RecordFrame:
         w_.geometry("%dx%d+%d+%d" % (max(1, wd), max(1, ht), x, y))
         w_.deiconify()
         try:
-            win.set_click_through(win.toplevel_hwnd(w_), True)
+            win.set_click_through(win.toplevel_hwnd(w_), True, alpha)
         except Exception:
             pass
         return w_
@@ -132,8 +156,9 @@ class RecordFrame:
             if self._dot_on:
                 d = int(9 * self.s)
                 cx, cy = int(9 * self.s), int(self.BAR_H * self.s / 2)
+                red = self.c.get("record", self.c["error"])
                 self.dot.create_oval(cx - d / 2, cy - d / 2, cx + d / 2, cy + d / 2,
-                                     fill=self.c["error"], outline=self.c["error"])
+                                     fill=red, outline=red)
             self._dot_on = not self._dot_on
             self.bar.after(500, self._blink)
         except Exception:

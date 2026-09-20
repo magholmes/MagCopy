@@ -6,6 +6,8 @@ errors.log
 crash.log
 # test output (screenshots of a real desktop; never commit these)
 tools/_shots/
+tools/_*.png
+tools/_*.py
 # build
 build/
 dist/

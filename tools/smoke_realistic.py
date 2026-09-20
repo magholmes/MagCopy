@@ -9,9 +9,16 @@ ok = True
 
 # ---- 1. border geometry (pure logic: the strips must sit strictly outside the rect)
 def strips(rect, t):
+    """Every piece the recording frame draws: four edges plus eight corner-bracket arms."""
     x, y, wd, ht = rect
+    ct = max(3, t + 1)
+    cl = max(16, min(int(min(wd, ht) * 0.15), 42))
     return [(x - t, y - t, wd + 2 * t, t), (x - t, y + ht, wd + 2 * t, t),
-            (x - t, y, t, ht), (x + wd, y, t, ht)]
+            (x - t, y, t, ht), (x + wd, y, t, ht),
+            (x - ct, y - ct, cl + ct, ct), (x - ct, y - ct, ct, cl + ct),
+            (x + wd - cl, y - ct, cl + ct, ct), (x + wd, y - ct, ct, cl + ct),
+            (x - ct, y + ht, cl + ct, ct), (x - ct, y + ht - cl, ct, cl + ct),
+            (x + wd - cl, y + ht, cl + ct, ct), (x + wd, y + ht - cl, ct, cl + ct)]
 
 def overlaps(a, b):
     ax, ay, aw, ah = a; bx, by, bw, bh = b
@@ -19,7 +26,7 @@ def overlaps(a, b):
 
 for rect in ((100, 100, 760, 480), (0, 0, 300, 200), (-1400, -500, 640, 360), (5, 5, 33, 17)):
     cap = (rect[0], rect[1], int(rect[2]) & ~1, int(rect[3]) & ~1)   # what Recorder actually grabs
-    for t in (2, 3, 4):
+    for t in (1, 2, 3):
         for s in strips(rect, t):
             if overlaps(s, cap):
                 print("FAIL: border strip %s overlaps capture %s (t=%d)" % (s, cap, t)); ok = False
