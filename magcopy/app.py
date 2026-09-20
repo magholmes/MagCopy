@@ -275,8 +275,6 @@ class App:
             if win.set_clipboard_files([res.path]):
                 note += " · copied, paste with ctrl+v"
         self._remember(res.path, "%d × %d · %.4g fps" % (res.width, res.height, res.fps), res.bytes)
-        if self.settings["open_folder_after_gif"]:
-            self._open(os.path.dirname(res.path))
         if not res.fits:
             self.toast("saved, but it is over the %.0f mb limit" % self.settings["size_limit_mb"],
                        error=True)
@@ -356,6 +354,23 @@ class App:
             os.startfile(path)
         except Exception:
             log_exc("open %s" % path)
+
+    def reveal(self, path):
+        """Open the containing folder with the file selected, rather than just the folder.
+
+        Landing in a folder of similarly-named captures and having to work out which one was
+        just written is a small, entirely avoidable annoyance.
+        """
+        try:
+            if os.name == "nt" and os.path.exists(path):
+                import subprocess
+                from .binaries import CREATE_NO_WINDOW
+                subprocess.Popen(["explorer", "/select,", os.path.normpath(path)],
+                                 creationflags=CREATE_NO_WINDOW)
+                return
+        except Exception:
+            log_exc("reveal %s" % path)
+        self._open(os.path.dirname(path) or path)
 
     # ----------------------------------------------------------------- toast
     def toast(self, text, error=False):

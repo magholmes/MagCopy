@@ -87,7 +87,7 @@ Everything lives in the window, and in `settings.json` next to the script (or `%
 | **shape** | free, or hold every selection to 1:1, 4:5, 5:4, 4:3 or 16:9 — shift overrides it mid-drag |
 | **max length** | 10 / 20 / 30 / 60 seconds |
 | **size limit** | 8 / 10 / 25 / 50 MB — Discord gives 10 free, more with Nitro |
-| **after** | copy the GIF to the clipboard as a file, open the folder, also save screenshots |
+| **after** | copy the GIF to the clipboard as a file, show it in its folder (on by default), also save screenshots |
 | **startup** | start with Windows — on by default, launching straight to the tray |
 
 The finished GIF goes on the clipboard as a *file*, so Ctrl+V in Discord attaches it rather than pasting a path.
@@ -113,6 +113,8 @@ Every piece sits *outside* the captured rectangle and is click-through, so none 
 ## Editing
 
 The editor opens on its own after a recording, taking at most 80% of the monitor the clip was recorded on — and never upscaling past the recording's own size, since blowing a small capture up only makes it soft. It measures its own controls while still hidden to work out how much room the picture can have, and is mapped once at that size, so nothing is ever seen to resize. Scrub the filmstrip, drag the handles to trim, set a speed, save. Space plays, Ctrl+S saves, Escape discards.
+
+When the GIF is written the file is shown in its folder — selected, not just the folder opened — and the editor asks **all done?** rather than closing itself. `done` closes it, `keep editing` leaves everything as it was so you can adjust the trim or crop and save again. A GIF is often nearly right, and finding out means looking at the file, so nothing is thrown away until it is asked for.
 
 **Drag on the picture to crop**, then drag any edge or corner to adjust it, or drag from inside to move the whole box. `save crop` locks it in; `reset crop` puts it back. The crop is applied to the full-quality master before anything is scaled, so cropping to the interesting part spends the whole size budget on it instead of on the parts you were going to throw away.
 

@@ -204,6 +204,7 @@ class GifEditor:
         self._cancel_save = False
         self.result = None
         self.top = None
+        self._done_win = None
         self.pw = PREVIEW_MIN_W           # preview pixel size, computed from the screen
         self.ph = 240
         self.crop = None                  # (x, y, w, h) in SOURCE pixels, or None for the lot
@@ -226,6 +227,7 @@ class GifEditor:
         shutil.rmtree(self.work, ignore_errors=True)
 
     def close(self):
+        self._dismiss_done()
         self.playing = False
         if self._play_job:
             try:
@@ -608,16 +610,125 @@ class GifEditor:
         self.status.configure(text="could not save: %s" % msg)
 
     def _saved(self, res):
+        """Saving is finished: show the folder, then ask whether that is that.
+
+        The editor used to close itself a second later, which is the wrong default - a GIF is
+        often nearly right, and finding out means looking at the file. Nothing is thrown away
+        until it is asked for.
+        """
         self.saving = False
         self.result = res
         self.prep.set(1.0)
-        note = "%d × %d · %.4g fps · %d frames · %.2f MB" % (
+        note = "%d x %d  ·  %.4g fps  ·  %d frames  ·  %.2f MB" % (
             res.width, res.height, res.fps, res.frames, res.bytes / 1e6)
         if not res.fits:
-            note += "  (over the limit)"
+            note += "   (over the limit)"
         self.status.configure(text=note)
         self.app.gif_saved(res)
-        self.top.after(1100, self.close)
+        self.btn_play.set_enabled(True)
+        self.btn_save.set_enabled(True)
+        if self.settings.get("open_folder_after_gif", True):
+            self.app.reveal(res.path)
+        self._show_done(res, note)
+
+    def _show_done(self, res, note):
+        """A small themed panel over the editor: done, keep editing, or show the file again."""
+        S = lambda px: int(round(px * self.s))
+        T, F, c = self.theme, self.fonts, self.theme.c
+        try:
+            if getattr(self, "_done_win", None) is not None:
+                self._done_win.destroy()
+        except Exception:
+            pass
+        win_ = tk.Toplevel(self.top)
+        self._done_win = win_
+        win_.withdraw()
+        win_.transient(self.top)
+        win_.title("saved")
+        win_.configure(bg=c["bg"], highlightthickness=0)
+        win_.resizable(False, False)
+
+        panel = Panel(win_)
+        # both colours: Tk paints highlightcolor while the widget has focus and
+        # highlightbackground while it does not, and the default focused colour is near-white
+        panel.configure(highlightthickness=1, highlightbackground=c["hair"], highlightcolor=c["hair"])
+        panel.pack(fill="both", expand=True)
+        T.add(panel)
+        inner = Panel(panel)
+        inner.pack(fill="both", expand=True, padx=S(22), pady=(S(18), S(16)))
+        T.add(inner)
+
+        head = Label(inner, role="ink", text="all done?", font=F.head, anchor="w")
+        head.pack(fill="x")
+        T.add(head)
+        name = Label(inner, role="ink2", text=os.path.basename(res.path), font=F.mono9, anchor="w")
+        name.pack(fill="x", pady=(S(8), 0))
+        T.add(name)
+        meta = Label(inner, role="mute", text=note, font=F.mono8, anchor="w")
+        meta.pack(fill="x", pady=(S(3), 0))
+        T.add(meta)
+        where = Label(inner, role="mute2", text="saved to %s" % os.path.dirname(res.path),
+                      font=F.mono8, anchor="w")
+        where.pack(fill="x", pady=(S(6), 0))
+        T.add(where)
+        hl = Hairline(inner)
+        hl.pack(fill="x", pady=(S(14), S(12)))
+        T.add(hl)
+
+        row = Panel(inner)
+        row.pack(fill="x")
+        T.add(row)
+
+        def finish():
+            self._dismiss_done()
+            self.close()
+
+        def keep():
+            self._dismiss_done()
+            self.status.configure(text="still open - change the trim or crop and save again")
+
+        btn = Button(row, F, "done", finish, "primary", self.s)
+        btn.pack(side="left")
+        T.add(btn)
+        keep_btn = Button(row, F, "keep editing", keep, "ghost", self.s)
+        keep_btn.pack(side="left", padx=(S(8), 0))
+        T.add(keep_btn)
+        show = TextLink(row, "show the file", lambda: self.app.reveal(res.path), F)
+        show.pack(side="right", pady=(S(6), 0))
+        T.add(show)
+
+        win_.update_idletasks()
+        w_, h_ = win_.winfo_reqwidth(), win_.winfo_reqheight()
+        tx, ty = self.top.winfo_rootx(), self.top.winfo_rooty()
+        tw, th = self.top.winfo_width(), self.top.winfo_height()
+        win_.geometry("%dx%d+%d+%d" % (w_, h_, tx + (tw - w_) // 2, ty + (th - h_) // 3))
+        win_.deiconify()
+        win_.lift()
+        try:
+            win.make_frameless(win_, c["hair"], c["bg"])
+        except Exception:
+            pass
+        win_.bind("<Escape>", lambda e: keep())
+        win_.bind("<Return>", lambda e: finish())
+        try:
+            win_.grab_set()
+            btn.focus_set()
+        except Exception:
+            pass
+
+    def _dismiss_done(self):
+        w_ = getattr(self, "_done_win", None)
+        self._done_win = None
+        if w_ is None:
+            return
+        try:
+            w_.grab_release()
+        except Exception:
+            pass
+        try:
+            w_.destroy()
+        except Exception:
+            pass
 
     # ---- layout
     PADX = 0

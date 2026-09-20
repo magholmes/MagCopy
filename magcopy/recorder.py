@@ -132,7 +132,8 @@ class RecordFrame:
         bar.configure(bg=c["bg"])
         bar.geometry("%dx%d+%d+%d" % (bw, bh, bx, by))
         panel = Panel(bar)
-        panel.configure(bg=c["bg"], highlightthickness=1, highlightbackground=c["hair"])
+        panel.configure(bg=c["bg"], highlightthickness=1, highlightbackground=c["hair"],
+                        highlightcolor=c["hair"])
         panel.pack(fill="both", expand=True)
 
         self.dot = tk.Canvas(panel, width=int(18 * self.s), height=bh, bd=0, highlightthickness=0, bg=c["bg"])
