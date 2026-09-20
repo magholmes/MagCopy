@@ -18,3 +18,6 @@ dist/
 __pycache__/
 *.pyc
 .venv/
+
+# Finder leaves these behind in any folder it has been shown
+.DS_Store
