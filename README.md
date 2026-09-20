@@ -41,13 +41,15 @@ Everything else is `ctypes` against Win32, so there is no build step and no comp
 
 Closing the window leaves MagCopy running — the shortcuts keep working and it sits in the notification area. Quit from the tray icon's right-click menu, or the `quit` link in the window.
 
+It starts with Windows by default (straight to the tray, no window), and only ever runs one copy: launching it again just brings the running one forward, because two copies cannot both hold the same global shortcuts.
+
 ## The GIF pipeline
 
 This is the part with opinions in it.
 
 **The recording is deliberately over-good.** Frames are captured with GDI `BitBlt` into a reused device context and piped straight to x264 at CRF 14 in **yuv444p**. No chroma subsampling: for screen content, 4:2:0 is what makes text edges smear. Everything after this is a reduction, so the master is the one place not to throw anything away.
 
-**Frame rate is chosen, not assumed.** A GIF stores each frame's delay in hundredths of a second, so only rates of the form 100/n play back at true speed. 30 fps becomes 3 cs and runs **11% fast** — which is why MagCopy records at 25 or 50 fps, never 30, and why every rung of the quality ladder (50, 25, 20, 16⅔, 12.5, 10) is both an exact centisecond delay and an even decimation of the recording.
+**Frame rate is chosen, not assumed.** A GIF stores each frame's delay in hundredths of a second, so only rates of the form 100/n play back at true speed. 30 fps becomes 3 cs and runs **11% fast** — which is why MagCopy records at 50 fps by default (or 25, or 20) and never 30, and why every rung of the quality ladder (50, 25, 20, 16⅔, 12.5, 10) is both an exact centisecond delay and an even decimation of the recording.
 
 **The optimiser spends frame rate before it spends pixels.** Screen recordings fail differently from camera footage: text stops being readable long before motion stops reading as motion. So when something has to give, the ladder drops to 12.5 fps at full resolution rather than half resolution at 25 fps. (For camera footage the right call is the opposite — see the note below.)
 
@@ -81,13 +83,17 @@ Everything lives in the window, and in `settings.json` next to the script (or `%
 |---|---|
 | **theme** | dusk, night, ember, tide, paper |
 | **window size** | small → x-large |
-| **recording** | 50 / 25 / 20 fps, cursor on or off |
+| **recording** | 50 / 25 / 20 fps (50 by default), cursor on or off, and whether to draw the frame |
 | **max length** | 10 / 20 / 30 / 60 seconds |
 | **size limit** | 8 / 10 / 25 / 50 MB — Discord gives 10 free, more with Nitro |
 | **after** | copy the GIF to the clipboard as a file, open the folder, also save screenshots |
-| **startup** | start with Windows |
+| **startup** | start with Windows — on by default, launching straight to the tray |
 
 The finished GIF goes on the clipboard as a *file*, so Ctrl+V in Discord attaches it rather than pasting a path.
+
+## While recording
+
+A thin frame marks the region for the length of the recording, with a timer and stop/cancel beside it. The frame sits *outside* the captured rectangle and is click-through, so it never appears in the GIF and never eats a click meant for the app you are recording. Turn it off with the `show frame` toggle.
 
 ## Editing
 
@@ -143,7 +149,8 @@ are all working, and leaves the same report in `%APPDATA%\MagCopy\selftest.txt`.
 python tools/run_all_tests.py
 ```
 
-Seven smoke tests, about five minutes. They drive the real region selector, measure recording
+Ten smoke tests, about two minutes. They drive the real region selector, measure recording
 pace against the wall clock, walk every theme and window size, run a real recording through the
-editor and out the other side as a GIF, and check the emitted GIF by parsing its block structure
-rather than trusting the encoder.
+editor and out the other side as a GIF, sample the screen to confirm the recording frame is
+actually drawn, and check the emitted GIF by parsing its block structure rather than trusting the
+encoder.

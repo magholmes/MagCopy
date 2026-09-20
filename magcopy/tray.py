@@ -21,6 +21,8 @@ s32 = ctypes.WinDLL("shell32", use_last_error=True)
 
 WM_DESTROY, WM_COMMAND, WM_APP = 0x0002, 0x0111, 0x8000
 WM_TRAY = WM_APP + 1
+WM_SHOW_WINDOW = WM_APP + 2      # posted by a second launch to surface the instance already running
+TRAY_CLASS = "MagCopyTrayWindow"
 WM_LBUTTONUP, WM_RBUTTONUP, WM_LBUTTONDBLCLK = 0x0202, 0x0205, 0x0203
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
 NIF_MESSAGE, NIF_ICON, NIF_TIP = 0x01, 0x02, 0x04
@@ -126,6 +128,9 @@ class Tray:
                 elif low == WM_RBUTTONUP:
                     self._menu(hwnd)
                 return 0
+            if msg == WM_SHOW_WINDOW:
+                self.on_activate()
+                return 0
             if msg == WM_COMMAND:
                 idx = wparam & 0xFFFF
                 real = [it for it in self.items if it[1]]
@@ -175,9 +180,9 @@ class Tray:
             cls = WNDCLASS()
             cls.lpfnWndProc = self._proc
             cls.hInstance = hinst
-            cls.lpszClassName = "MagCopyTrayWindow"
+            cls.lpszClassName = TRAY_CLASS
             u32.RegisterClassW(ctypes.byref(cls))
-            self.hwnd = u32.CreateWindowExW(0, "MagCopyTrayWindow", APP_NAME, 0, 0, 0, 0, 0,
+            self.hwnd = u32.CreateWindowExW(0, TRAY_CLASS, APP_NAME, 0, 0, 0, 0, 0,
                                             None, None, hinst, None)
             if not self.hwnd:
                 self._ready.set()
@@ -210,3 +215,38 @@ class Tray:
             u32.TranslateMessage(ctypes.byref(msg))
             u32.DispatchMessageW(ctypes.byref(msg))
         self._remove()
+
+
+# ----------------------------------------------------------------------------- single instance
+def already_running():
+    """True if another MagCopy owns the instance mutex.
+
+    Two copies cannot both hold the global shortcuts - the second one silently loses them - and
+    with "start with Windows" on by default that is easy to arrange by accident. The named mutex
+    is held for the life of the process, so it is released even on a hard kill.
+    """
+    ERROR_ALREADY_EXISTS = 183
+    k32.CreateMutexW.restype = w.HANDLE
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, w.BOOL, w.LPCWSTR]
+    handle = k32.CreateMutexW(None, False, r"Local\MagCopy-single-instance")
+    if not handle:
+        return False
+    _MUTEX.append(handle)                       # keep it alive for the process lifetime
+    return ctypes.get_last_error() == ERROR_ALREADY_EXISTS
+
+
+_MUTEX = []
+
+
+def wake_running_instance():
+    """Ask the copy that is already running to show its window."""
+    try:
+        u32.FindWindowW.restype = w.HWND
+        u32.FindWindowW.argtypes = [w.LPCWSTR, w.LPCWSTR]
+        hwnd = u32.FindWindowW(TRAY_CLASS, None)
+        if hwnd:
+            u32.PostMessageW(hwnd, WM_SHOW_WINDOW, 0, 0)
+            return True
+    except Exception:
+        log_exc("wake running instance")
+    return False

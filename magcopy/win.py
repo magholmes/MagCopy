@@ -73,6 +73,8 @@ def _declare():
     u32.SetWindowPos.argtypes = [w.HWND, w.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                  ctypes.c_int, w.UINT]
     u32.GetWindowRect.argtypes = [w.HWND, ctypes.c_void_p]
+    u32.SetLayeredWindowAttributes.argtypes = [w.HWND, w.COLORREF, ctypes.c_ubyte, w.DWORD]
+    u32.SetLayeredWindowAttributes.restype = w.BOOL
     u32.RegisterHotKey.argtypes = [w.HWND, ctypes.c_int, w.UINT, w.UINT]
     u32.UnregisterHotKey.argtypes = [w.HWND, ctypes.c_int]
     u32.GetMessageW.argtypes = [ctypes.c_void_p, w.HWND, w.UINT, w.UINT]
@@ -541,13 +543,24 @@ def move_window(hwnd, x, y):
     u32.SetWindowPos(hwnd, 0, int(x), int(y), 0, 0, 0x0001 | 0x0004 | 0x0010)   # NOSIZE|NOZORDER|NOACTIVATE
 
 
-def set_click_through(hwnd, on=True):
-    """WS_EX_TRANSPARENT so the recording frame never eats clicks meant for the app underneath."""
-    GWL_EXSTYLE, WS_EX_TRANSPARENT, WS_EX_LAYERED = -20, 0x00000020, 0x00080000
+def set_click_through(hwnd, on=True, alpha=255):
+    """WS_EX_TRANSPARENT so the recording frame never eats clicks meant for the app underneath.
+
+    WS_EX_LAYERED has to come with it - transparency hit-testing is only reliable on a layered
+    window - but a layered window draws nothing at all until its layer attributes are set. Adding
+    the style and stopping there is what made the recording rectangle invisible; the window was
+    there the whole time, composited at zero opacity. So set the alpha explicitly, every time.
+    """
+    GWL_EXSTYLE, WS_EX_TRANSPARENT, WS_EX_LAYERED, LWA_ALPHA = -20, 0x00000020, 0x00080000, 0x02
     try:
         ex = u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
-        ex = (ex | WS_EX_TRANSPARENT | WS_EX_LAYERED) if on else (ex & ~WS_EX_TRANSPARENT)
+        if on:
+            ex |= WS_EX_TRANSPARENT | WS_EX_LAYERED
+        else:
+            ex &= ~WS_EX_TRANSPARENT
         u32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex)
+        if ex & WS_EX_LAYERED:
+            u32.SetLayeredWindowAttributes(hwnd, 0, int(max(0, min(255, alpha))), LWA_ALPHA)
         return True
     except Exception:
         return False

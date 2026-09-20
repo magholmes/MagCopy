@@ -83,13 +83,13 @@ DEFAULTS = dict(
     copy_gif_to_clipboard=True,           # put the finished gif on the clipboard as a file
     open_folder_after_gif=False,
     max_seconds=20,
-    record_fps=25,                        # 25 and 50 divide into exact gif delays; 30 does not
+    record_fps=50,                        # 50 and 25 divide into exact gif delays; 30 does not
     capture_cursor=True,
     size_limit_mb=10.0,                   # discord's free-tier ceiling
     target_headroom=0.985,                # aim just under the limit, never at it
     play_sound=False,
     show_recording_frame=True,
-    start_with_windows=False,
+    start_with_windows=True,              # applied on first run only; after that the registry wins
 )
 
 
@@ -116,6 +116,11 @@ def setup_crash_logging():
         return fh                                  # kept open for the process lifetime on purpose
     except Exception:
         return None
+
+
+def is_first_run():
+    """True when no settings file exists yet, so first-run defaults may still be applied."""
+    return not os.path.exists(SETTINGS_FILE)
 
 
 def load():
@@ -205,11 +210,12 @@ def set_autostart(on, target=None):
             if on:
                 if target is None:
                     if FROZEN:
-                        target = '"%s"' % sys.executable
+                        target = '"%s" --hidden' % sys.executable
                     else:
                         pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
                         script = os.path.join(APP_DIR, "magcopy.pyw")
-                        target = '"%s" "%s"' % (pyw if os.path.exists(pyw) else sys.executable, script)
+                        target = '"%s" "%s" --hidden' % (
+                            pyw if os.path.exists(pyw) else sys.executable, script)
                 winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, target)
             else:
                 try:

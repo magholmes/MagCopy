@@ -1,12 +1,17 @@
 """Run every smoke test in order and summarise."""
 import os, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
-TESTS = ["smoke_gifinfo.py", "smoke_overlay.py", "smoke_pacing.py", "smoke_ui.py",
-         "smoke_editor.py", "smoke_pipeline.py", "smoke_realistic.py"]
+TESTS = ["smoke_gifinfo.py", "smoke_defaults.py", "smoke_frame.py", "smoke_overlay.py",
+         "smoke_pacing.py", "smoke_instance.py", "smoke_ui.py", "smoke_editor.py",
+         "smoke_pipeline.py", "smoke_realistic.py"]
+
+# constructing App() on a machine with no settings file would register "start with Windows";
+# the tests must not touch the real registry
+ENV = dict(os.environ, MAGCOPY_NO_AUTOSTART="1")
 rows = []
 for t in TESTS:
     t0 = time.time()
-    r = subprocess.run([sys.executable, os.path.join(HERE, t)],
+    r = subprocess.run([sys.executable, os.path.join(HERE, t)], env=ENV,
                        cwd=os.path.dirname(HERE), capture_output=True, text=True)
     rows.append((t, r.returncode, time.time() - t0))
     tail = [l for l in (r.stdout or "").strip().splitlines() if l.strip()][-1:] or [""]

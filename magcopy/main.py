@@ -122,6 +122,11 @@ def main(argv=None):
     if "--selftest" in argv:
         return selftest(argv)
 
+    from .tray import already_running, wake_running_instance
+    if already_running() and "--allow-multiple" not in argv:
+        wake_running_instance()                  # bring the existing copy forward instead
+        return 0
+
     missing = _missing_python_packages()
     if missing:
         root = tk.Tk()

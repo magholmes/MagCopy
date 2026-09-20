@@ -29,7 +29,8 @@ from .editor import GifEditor
 from .optimize import gif_info
 from .recorder import RecordFrame, Recorder
 from .settings import (APP_NAME, APP_VERSION, DEFAULTS, RES_DIR, APP_DIR, SETTINGS_DIR,
-                       get_autostart, load, log_exc, save, save_dir, set_autostart, stamped_name)
+                       get_autostart, is_first_run, load, log_exc, save, save_dir, set_autostart,
+                       stamped_name)
 from .theme import (Button, DotToggle, Fonts, Hairline, HotkeyField, IconButton, Label, Panel,
                     Pills, THEME_ORDER, Theme, TextLink, register_fonts)
 from .tray import Tray
@@ -43,8 +44,17 @@ LIMIT_CHOICES = [(8.0, "8"), (10.0, "10"), (25.0, "25"), (50.0, "50")]
 class App:
     def __init__(self, root):
         self.root = root
+        first_run = is_first_run()
         self.settings = load()
+        # "start with Windows" is a registry entry, so the registry is the truth after the first
+        # run - otherwise turning it off would come back on at every launch. The default only gets
+        # to act once, when there is no settings file yet.
+        if (first_run and DEFAULTS["start_with_windows"] and not get_autostart()
+                and not os.environ.get("MAGCOPY_NO_AUTOSTART")):
+            set_autostart(True)                           # MAGCOPY_NO_AUTOSTART is for the tests
         self.settings["start_with_windows"] = get_autostart()
+        if first_run:
+            save(self.settings)
         self.dpi = max(0.75, root.winfo_fpixels("1i") / 96.0) if os.name == "nt" else 1.0
         self.ui_factor = float(self.settings.get("ui_scale", 1.0))
         self.theme = Theme(self.settings["theme"])
@@ -548,6 +558,10 @@ class App:
                                        lambda v: self._set("capture_cursor", v), self.scale)
         self.toggle_cursor.pack(side="left")
         T.add(self.toggle_cursor)
+        self.toggle_frame = DotToggle(r, F, "show frame", self.settings["show_recording_frame"],
+                                      lambda v: self._set("show_recording_frame", v), self.scale)
+        self.toggle_frame.pack(side="left", padx=(S(6), 0))
+        T.add(self.toggle_frame)
 
         r = row("max length")
         T.add(Pills(r, F, LENGTH_CHOICES, self.settings["max_seconds"],
