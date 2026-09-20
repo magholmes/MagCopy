@@ -1,7 +1,8 @@
-"""Settings file, app paths and the crash/error log.
+"""Settings file, app paths, start-at-login and the crash/error log.
 
-Settings live next to the script when running from source and in %APPDATA%\\MagCopy when frozen,
-so a packaged copy never tries to write inside Program Files.
+Settings live next to the script when running from source, and in the platform's own place when
+frozen - %APPDATA%\\MagCopy on Windows, ~/Library/Application Support/MagCopy on macOS - so a
+packaged copy never tries to write inside Program Files or an app bundle.
 """
 import datetime
 import json
@@ -9,6 +10,7 @@ import os
 import sys
 import traceback
 
+IS_MAC = sys.platform == "darwin"
 APP_NAME = "MagCopy"
 APP_VERSION = "1.3"
 FROZEN = bool(getattr(sys, "frozen", False))
@@ -59,6 +61,13 @@ def _known_pictures():
 
 
 def default_save_dir():
+    if IS_MAC:
+        # ~/Pictures is a fixed location on macOS - there is no redirection to ask about, the way
+        # OneDrive moves Pictures on Windows - so this needs no equivalent of SHGetKnownFolderPath
+        pics = os.path.expanduser("~/Pictures")
+        if os.path.isdir(pics):
+            return os.path.join(pics, APP_NAME)
+        return os.path.join(os.path.expanduser("~"), APP_NAME)
     pics = _known_pictures()
     if pics:
         return os.path.join(pics, APP_NAME)
@@ -90,7 +99,9 @@ DEFAULTS = dict(
     target_headroom=0.985,                # aim just under the limit, never at it
     play_sound=False,
     show_recording_frame=True,
-    start_with_windows=True,              # applied on first run only; after that the registry wins
+    start_with_windows=True,              # applied on first run only; after that the system wins
+                                          # (the Run key on Windows, a LaunchAgent on macOS - the
+                                          # settings key keeps its name so existing files still load)
 )
 
 
@@ -213,10 +224,74 @@ def capture_path(directory, ext):
 
 # ----------------------------------------------------------------------------- run at startup
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+LAUNCH_LABEL = "com.magholmes.magcopy"
+LAUNCH_AGENT = os.path.expanduser("~/Library/LaunchAgents/%s.plist" % LAUNCH_LABEL)
+
+
+def _mac_launch_args():
+    """The command a LaunchAgent should run to start this copy, hidden."""
+    if FROZEN:
+        # inside a bundle sys.executable is Contents/MacOS/MagCopy, which is the thing to launch
+        return [sys.executable, "--hidden"]
+    return [sys.executable, os.path.join(APP_DIR, "magcopy.pyw"), "--hidden"]
+
+
+def _mac_agent_args():
+    """The ProgramArguments currently in the LaunchAgent, or None if there is no agent."""
+    if not os.path.exists(LAUNCH_AGENT):
+        return None
+    try:
+        import plistlib
+        with open(LAUNCH_AGENT, "rb") as fh:
+            return list(plistlib.load(fh).get("ProgramArguments") or [])
+    except Exception:
+        return None
+
+
+def _mac_get_autostart():
+    args = _mac_agent_args()
+    return bool(args) and os.path.normcase(args[0]) == os.path.normcase(_mac_launch_args()[0])
+
+
+def _mac_set_autostart(on):
+    """Write or remove the LaunchAgent, and tell launchd about it either way.
+
+    SMAppService.mainApp.register() is the modern call and is bundle-only: it raises outright when
+    the process is a loose python running a script, which is exactly how MagCopy runs from source.
+    A LaunchAgent works in both shapes, and is a file the user can read and delete.
+    """
+    import plistlib
+    import subprocess
+    try:
+        if on:
+            os.makedirs(os.path.dirname(LAUNCH_AGENT), exist_ok=True)
+            with open(LAUNCH_AGENT, "wb") as fh:
+                plistlib.dump({
+                    "Label": LAUNCH_LABEL,
+                    "ProgramArguments": _mac_launch_args(),
+                    "RunAtLoad": True,
+                    "ProcessType": "Interactive",
+                }, fh)
+        elif os.path.exists(LAUNCH_AGENT):
+            os.remove(LAUNCH_AGENT)
+        uid = os.getuid()
+        # bootout first even when enabling: launchd keeps the old definition otherwise, so a
+        # moved or rebuilt copy would go on starting the one that is no longer there
+        subprocess.run(["launchctl", "bootout", "gui/%d/%s" % (uid, LAUNCH_LABEL)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if on:
+            subprocess.run(["launchctl", "bootstrap", "gui/%d" % uid, LAUNCH_AGENT],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        log_exc("set_autostart")
+        return False
 
 
 def autostart_target():
-    """The command the Run key should hold for *this* copy."""
+    """The command the startup entry should hold for *this* copy."""
+    if IS_MAC:
+        return " ".join(_mac_launch_args())
     if FROZEN:
         return '"%s" --hidden' % sys.executable
     pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
@@ -233,12 +308,14 @@ def _exe_in(command):
 
 
 def get_autostart():
-    """True only when the Run key points at THIS copy.
+    """True only when the system's startup entry points at THIS copy.
 
     Checking merely that the value exists is how a moved or replaced .exe ends up reporting
     "starts with Windows" while the entry still launches a copy that is no longer there - or
     worse, an older one that grabs the shortcuts first.
     """
+    if IS_MAC:
+        return _mac_get_autostart()
     if os.name != "nt":
         return False
     try:
@@ -251,7 +328,12 @@ def get_autostart():
 
 
 def autostart_points_elsewhere():
-    """A Run entry exists but launches a different copy - worth telling the user about."""
+    """A startup entry exists but launches a different copy - worth telling the user about."""
+    if IS_MAC:
+        args = _mac_agent_args()
+        if args and os.path.normcase(args[0]) != os.path.normcase(_mac_launch_args()[0]):
+            return args[0]
+        return None
     if os.name != "nt":
         return None
     try:
@@ -266,7 +348,9 @@ def autostart_points_elsewhere():
 
 
 def set_autostart(on, target=None):
-    """Point HKCU\\...\\Run at the .exe when frozen, or at pythonw + the launcher from source."""
+    """Point the system's startup entry at this copy, or take it away."""
+    if IS_MAC:
+        return _mac_set_autostart(on)
     if os.name != "nt":
         return False
     try:

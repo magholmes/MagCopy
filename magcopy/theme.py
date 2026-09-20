@@ -11,6 +11,7 @@ theme is a setting rather than a constant. Every widget registers with the Theme
 `restyle(colours)` call, both on creation and whenever the palette changes.
 """
 import os
+import sys
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -98,17 +99,52 @@ class Theme:
 
 # ----------------------------------------------------------------------------- fonts
 def register_fonts():
-    """Load the bundled Geist faces for this process so Tk can name them."""
-    if os.name != "nt" or not os.path.isdir(FONT_DIR):
+    """Load the bundled Geist faces for this process so Tk can name them.
+
+    Private to the process on both platforms - installing fonts system-wide because an
+    application happened to run is not a thing to do to somebody's machine.
+
+    One difference worth knowing about. Windows exposes every face as its own family, so "Geist
+    Medium" can be asked for by name. macOS groups the weights of a family together, so only
+    "Geist" and "Geist Mono" appear and the weight is chosen by style instead. `Fonts` below
+    already falls back to asking Tk for bold when it cannot find a medium family by name, and
+    with only Regular and Medium registered that resolves to Medium, which is what was wanted.
+    """
+    if not os.path.isdir(FONT_DIR):
         return
     import ctypes
-    FR_PRIVATE = 0x10
-    for name in os.listdir(FONT_DIR):
-        if name.lower().endswith((".ttf", ".otf")):
+    files = [n for n in os.listdir(FONT_DIR) if n.lower().endswith((".ttf", ".otf"))]
+    if os.name == "nt":
+        FR_PRIVATE = 0x10
+        for name in files:
             try:
                 ctypes.windll.gdi32.AddFontResourceExW(os.path.join(FONT_DIR, name), FR_PRIVATE, 0)
             except Exception:
                 pass
+        return
+    if sys.platform != "darwin":
+        return
+    try:
+        import ctypes.util
+        cf = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreFoundation"))
+        ct = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreText"))
+        cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
+        cf.CFURLCreateFromFileSystemRepresentation.argtypes = [
+            ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_bool]
+        ct.CTFontManagerRegisterFontsForURL.restype = ctypes.c_bool
+        ct.CTFontManagerRegisterFontsForURL.argtypes = [
+            ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+    except Exception:
+        return
+    K_SCOPE_PROCESS = 1
+    for name in files:
+        try:
+            raw = os.path.join(FONT_DIR, name).encode("utf-8")
+            url = cf.CFURLCreateFromFileSystemRepresentation(None, raw, len(raw), False)
+            # a second registration of the same file returns False and is not a problem
+            ct.CTFontManagerRegisterFontsForURL(url, K_SCOPE_PROCESS, None)
+        except Exception:
+            pass
 
 
 class Fonts:

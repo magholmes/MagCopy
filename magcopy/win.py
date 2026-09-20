@@ -403,6 +403,11 @@ class HotkeyManager:
         self._failed = []                   # names that Windows refused (usually already taken)
         self.on_error = on_error
 
+    @property
+    def started(self):
+        """True once the hotkey thread exists, so a caller knows to rebind rather than start."""
+        return self._thread is not None
+
     def start(self, bindings):
         """bindings: list of (name, hotkey_string, callback)."""
         self._pending = bindings

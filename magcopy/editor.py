@@ -26,7 +26,7 @@ import tkinter as tk
 
 from PIL import Image, ImageTk
 
-from . import win
+from . import plat
 from .binaries import TOOLS, run
 from .optimize import GifOptimizer, Cancelled, fps_ladder, gif_info, probe
 from .settings import log_exc, save_dir, capture_path
@@ -786,7 +786,7 @@ class GifEditor:
         win_.deiconify()
         win_.lift()
         try:
-            win.make_frameless(win_, c["hair"], c["bg"])
+            plat.make_frameless(win_, c["hair"], c["bg"])
         except Exception:
             pass
         win_.bind("<Escape>", lambda e: keep())
@@ -1002,16 +1002,16 @@ class GifEditor:
         """
         try:
             if self.rect:
-                return win.work_area_for(self.rect)
+                return plat.work_area_for(self.rect)
             px, py = self.app.root.winfo_pointerx(), self.app.root.winfo_pointery()
-            return win.work_area_for((px, py, 1, 1))
+            return plat.work_area_for((px, py, 1, 1))
         except Exception:
             r = self.app.root
             return (0, 0, r.winfo_screenwidth(), r.winfo_screenheight())
 
     def _frameless(self):
         c = self.theme.c
-        win.make_frameless(self.top, c["hair"], c["bg"])
+        plat.make_frameless(self.top, c["hair"], c["bg"])
         self.top.attributes("-topmost", True)
         self.top.after(250, lambda: self.top.attributes("-topmost", False))
 
@@ -1021,10 +1021,10 @@ class GifEditor:
     def _drag_move(self, e):
         d = getattr(self, "_d", None)
         if d:
-            hwnd = win.toplevel_hwnd(self.top)
+            hwnd = plat.toplevel_hwnd(self.top)
             x, y = e.x_root - d[0], e.y_root - d[1]
             if hwnd:
-                win.move_window(hwnd, x, y)
+                plat.move_window(hwnd, x, y)
             else:
                 self.top.geometry("+%d+%d" % (x, y))
 

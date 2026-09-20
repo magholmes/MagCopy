@@ -1,13 +1,13 @@
 """The editor window must fit comfortably on the monitor it opens on, at any recording shape."""
 import os, sys, time, tkinter as tk
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from magcopy import win
+from magcopy import plat
 from magcopy.editor import SCREEN_FRACTION
 from magcopy.theme import register_fonts
 from magcopy.binaries import TOOLS, run
 import tempfile
 
-win.set_dpi_aware(); register_fonts()
+plat.set_dpi_aware(); register_fonts()
 root = tk.Tk()
 try: root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
 except Exception: pass
@@ -26,7 +26,7 @@ def check(n, good, d=""):
     print("%-52s %s %s" % (n, "ok  " if good else "FAIL", d))
 
 # check every monitor: a clip recorded on one must be measured against that one
-MONS = [(m[1], m[2]) for m in win.monitors()]
+MONS = [(m[1], m[2]) for m in plat.monitors()]
 print("monitors:", [m[0] for m in MONS])
 SHAPES = [(1280, 720), (1920, 1080), (640, 480), (500, 1200), (2400, 700)]
 CASES = [(work, sw, sh) for work, _ in MONS for sw, sh in SHAPES]

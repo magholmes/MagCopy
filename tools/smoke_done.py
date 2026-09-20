@@ -6,10 +6,10 @@ import time
 import tkinter as tk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from magcopy import win
+from magcopy import plat
 from magcopy.theme import register_fonts
 
-win.set_dpi_aware()
+plat.set_dpi_aware()
 register_fonts()
 root = tk.Tk()
 try:
@@ -36,7 +36,7 @@ def check(name, good, detail=""):
     print("%-52s %s %s" % (name, "ok  " if good else "FAIL", detail))
 
 
-vx, vy, _, _ = win.virtual_screen()
+vx, vy, _, _ = plat.virtual_screen()
 
 
 def step1():

@@ -4,6 +4,9 @@ bin/
 settings.json
 errors.log
 crash.log
+selftest.txt
+# the single-instance lock, and the per-test ones the suite makes
+*.lock
 # test output (screenshots of a real desktop; never commit these)
 tools/_shots/
 tools/_*.png

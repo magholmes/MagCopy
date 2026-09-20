@@ -15,6 +15,8 @@ The screenshot path
 """
 import os
 import queue
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -23,7 +25,7 @@ from tkinter import filedialog
 
 import numpy as np
 
-from . import win, overlay
+from . import plat, overlay
 from .binaries import TOOLS
 from .editor import GifEditor
 from .optimize import gif_info
@@ -46,9 +48,10 @@ class App:
         self.root = root
         first_run = is_first_run()
         self.settings = load()
-        # "start with Windows" is a registry entry, so the registry is the truth after the first
-        # run - otherwise turning it off would come back on at every launch. The default only gets
-        # to act once, when there is no settings file yet.
+        # Starting at login is a thing the system holds - a registry entry on Windows, a
+        # LaunchAgent on macOS - so the system is the truth after the first run; otherwise
+        # turning it off would come back on at every launch. The default only gets to act once,
+        # when there is no settings file yet.
         if (first_run and DEFAULTS["start_with_windows"] and not get_autostart()
                 and not os.environ.get("MAGCOPY_NO_AUTOSTART")):
             set_autostart(True)                           # MAGCOPY_NO_AUTOSTART is for the tests
@@ -84,7 +87,7 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self.hide_window)
         overlay.prewarm(root)
 
-        self.hotkeys = win.HotkeyManager()
+        self.hotkeys = plat.HotkeyManager()
         self._bind_hotkeys()
         self.tray = Tray(self._icon_path(), "%s %s" % (APP_NAME, APP_VERSION),
                          [("Open MagCopy", "open"), (None, None),
@@ -121,7 +124,7 @@ class App:
         bindings = [("screenshot", self.settings["hotkey_shot"],
                      lambda: self.post(self.start_screenshot)),
                     ("gif", self.settings["hotkey_gif"], lambda: self.post(self.start_gif))]
-        failed = (self.hotkeys.rebind(bindings) if self.hotkeys._thread
+        failed = (self.hotkeys.rebind(bindings) if self.hotkeys.started
                   else self.hotkeys.start(bindings))
         if failed:
             names = ", ".join(failed)
@@ -181,7 +184,7 @@ class App:
             crop = sel.bright.crop((x - sel.vx, y - sel.vy, x - sel.vx + wd, y - sel.vy + ht))
             rgb = np.asarray(crop, dtype=np.uint8)
             bgra = np.dstack([rgb[:, :, ::-1], np.full(rgb.shape[:2], 255, np.uint8)])
-            ok = win.set_clipboard_image(bgra)
+            ok = plat.set_clipboard_image(bgra)
             note = "%d × %d copied" % (wd, ht)
             if self.settings["save_screenshots"]:
                 path = capture_path(save_dir(self.settings), "png")
@@ -238,7 +241,7 @@ class App:
         self.recorder.start()
         # Escape has to be a real global hotkey: the window with focus is the one being recorded,
         # so nothing of ours is in a position to see the key. Held only for the recording.
-        self.record_esc = win.TransientHotkey("esc", lambda: self.post(self.stop_recording))
+        self.record_esc = plat.TransientHotkey("esc", lambda: self.post(self.stop_recording))
         try:
             self.record_esc.start()
         except Exception:
@@ -289,7 +292,7 @@ class App:
     def gif_saved(self, res):
         note = "%d × %d · %.2f MB" % (res.width, res.height, res.bytes / 1e6)
         if self.settings["copy_gif_to_clipboard"]:
-            if win.set_clipboard_files([res.path]):
+            if plat.set_clipboard_files([res.path]):
                 note += " · copied, paste with ctrl+v"
         self._remember(res.path, "%d × %d · %.4g fps" % (res.width, res.height, res.fps), res.bytes)
         if not res.fits:
@@ -301,21 +304,33 @@ class App:
 
     # ----------------------------------------------------------------- window
     def _icon_path(self):
+        """The icon for the tray or menu bar. NSImage cannot read a .ico, so macOS gets a PNG."""
+        names = ("menubar.png", "icon.png", "icon_source.png") if sys.platform == "darwin" \
+            else ("icon.ico",)
         for base in (RES_DIR, APP_DIR):
-            p = os.path.join(base, "icon.ico")
-            if os.path.exists(p):
-                return p
+            for name in names:
+                p = os.path.join(base, name)
+                if os.path.exists(p):
+                    return p
         return None
 
     def _frameless(self):
         c = self.theme.c
-        hwnd = win.make_frameless(self.root, c["hair"], c["bg"])
+        hwnd = plat.make_frameless(self.root, c["hair"], c["bg"])
         if hwnd:
             self.hwnd = hwnd
 
     def _fit(self):
+        """620pt wide, or wider if the controls genuinely need it.
+
+        The height has always come from the content; the width was a constant, which works right
+        up until the same layout is measured in a different font. Geist renders wider through
+        CoreText than it does through GDI, so every UI scale overflowed on macOS by between 19
+        and 84 pixels - enough to cut the last toggle of the "after" row in half. Asking the
+        content how wide it wants to be costs nothing where it already fits.
+        """
         self.root.update_idletasks()
-        wd = int(round(620 * self.scale))
+        wd = max(int(round(620 * self.scale)), self.bgroot.winfo_reqwidth())
         ht = self.bgroot.winfo_reqheight()
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         wd, ht = min(wd, sw - 40), min(ht, sh - 80)
@@ -333,7 +348,9 @@ class App:
         self.root.withdraw()
         if not getattr(self, "_told_about_tray", False):
             self._told_about_tray = True
-            self.tray.notify(APP_NAME, "Still running - the shortcuts work. Right-click the tray "
+            self.tray.notify(APP_NAME, "Still running - the shortcuts work. Right-click the menu bar "
+                             "icon to quit." if sys.platform == "darwin" else
+                             "Still running - the shortcuts work. Right-click the tray "
                                        "icon to quit.")
 
     def minimize(self):
@@ -369,7 +386,10 @@ class App:
 
     def _open(self, path):
         try:
-            os.startfile(path)
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                os.startfile(path)
         except Exception:
             log_exc("open %s" % path)
 
@@ -380,12 +400,16 @@ class App:
         just written is a small, entirely avoidable annoyance.
         """
         try:
-            if os.name == "nt" and os.path.exists(path):
-                import subprocess
+            if sys.platform == "darwin" and os.path.exists(path):
+                # NSWorkspace selects the file and brings Finder forward in one call - none of
+                # the foreground-rights dance Windows needs
+                if plat.reveal_in_finder(path):
+                    return
+            elif os.name == "nt" and os.path.exists(path):
                 from .binaries import CREATE_NO_WINDOW
                 # Without this the folder does open, but behind whatever of ours has focus, where
                 # it only blinks in the taskbar - which reads as nothing having happened at all.
-                win.allow_foreground()
+                plat.allow_foreground()
                 # The comma form has to stay split across two arguments. Joining it into one
                 # token looks tidier and is wrong: Windows then quotes the whole thing and
                 # Explorer ignores the switch, opening Documents instead of the file.
@@ -652,7 +676,8 @@ class App:
             T.add(tog)
 
         r = row("startup", gap=0)
-        self.toggle_autostart = DotToggle(r, F, "start with windows",
+        self.toggle_autostart = DotToggle(r, F, "start at login" if sys.platform == "darwin"
+                                          else "start with windows",
                                           self.settings["start_with_windows"],
                                           self._set_autostart, self.scale)
         self.toggle_autostart.pack(side="left")
@@ -705,6 +730,6 @@ class App:
             return
         x, y = e.x_root - d[0], e.y_root - d[1]
         if os.name == "nt" and self.hwnd:
-            win.move_window(self.hwnd, x, y)
+            plat.move_window(self.hwnd, x, y)
         else:
             self.root.geometry("+%d+%d" % (x, y))

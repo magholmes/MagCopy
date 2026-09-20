@@ -1,11 +1,12 @@
 """Record, open the editor, build the preview, trim, save - driven on a real Tk main loop."""
 import os, sys, time, tkinter as tk
+import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PIL import Image
-from magcopy import win, optimize
+from magcopy import plat, optimize
 from magcopy.theme import register_fonts
 
-win.set_dpi_aware(); register_fonts()
+plat.set_dpi_aware(); register_fonts()
 SHOTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_shots")
 os.makedirs(SHOTS, exist_ok=True)
 root = tk.Tk()
@@ -13,7 +14,7 @@ try: root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
 except Exception: pass
 from magcopy.app import App
 app = App(root)
-app.settings["save_dir"] = os.path.join(os.environ["TEMP"], "magcopy_editor_test")
+app.settings["save_dir"] = os.path.join(tempfile.gettempdir(), "magcopy_editor_test")
 os.makedirs(app.settings["save_dir"], exist_ok=True)
 app.hide_window()
 
@@ -26,7 +27,7 @@ app.gif_saved = res_hook = saved
 def fail(msg):
     state["fail"] = msg; root.quit()
 
-vx, vy, _, _ = win.virtual_screen()
+vx, vy, _, _ = plat.virtual_screen()
 def step1():
     app._begin_recording((vx + 80, vy + 80, 760, 480))
     root.after(3000, app.stop_recording)
@@ -48,7 +49,7 @@ def wait_preview(ed, n):
 def step3(ed):
     try:
         x, y = ed.top.winfo_rootx(), ed.top.winfo_rooty()
-        a = win.grab_once(x - 2, y - 2, ed.top.winfo_width() + 4, ed.top.winfo_height() + 4)
+        a = plat.grab_once(x - 2, y - 2, ed.top.winfo_width() + 4, ed.top.winfo_height() + 4)
         Image.fromarray(a[:, :, 2::-1], "RGB").save(os.path.join(SHOTS, "06_editor.png"))
     except Exception as e:
         print("editor screenshot failed:", e)

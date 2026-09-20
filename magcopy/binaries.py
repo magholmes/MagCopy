@@ -3,6 +3,9 @@
 MagCopy shells out to ffmpeg (capture -> master video, and frame extraction), gifski (the GIF
 encoder) and gifsicle (lossless GIF optimisation). They are looked for in ./bin first, then on
 PATH, so a checkout without the binaries still runs if they are installed system-wide.
+
+The names differ by platform (.exe or not) and so does hiding the console window: CREATE_NO_WINDOW
+is a Windows flag and simply zero everywhere else, where a subprocess opens no window to hide.
 """
 import os
 import shutil
@@ -24,6 +27,13 @@ def find(name):
     for base in (os.path.join(RES_DIR, "bin"), os.path.join(APP_DIR, "bin")):
         p = os.path.join(base, _exe(name))
         if os.path.exists(p):
+            if os.name != "nt" and not os.access(p, os.X_OK):
+                # unpacking a bundle can drop the execute bit, and the failure it causes is
+                # "Permission denied" from a program that is plainly sitting right there
+                try:
+                    os.chmod(p, os.stat(p).st_mode | 0o111)
+                except Exception:
+                    pass
             return p
     return shutil.which(name)
 

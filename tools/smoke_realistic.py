@@ -33,13 +33,13 @@ for rect in ((100, 100, 760, 480), (0, 0, 300, 200), (-1400, -500, 640, 360), (5
 print("border geometry:", "clear of the capture" if ok else "OVERLAPPING")
 
 # ---- 2. realistic screen content: a real desktop grab, panned, with a moving block over it
-from magcopy import win
+from magcopy import plat
 from PIL import Image
-win.set_dpi_aware()
+plat.set_dpi_aware()
 tmp = tempfile.mkdtemp(prefix="magcopy-real-")
-vx, vy, vw, vh = win.virtual_screen()
+vx, vy, vw, vh = plat.virtual_screen()
 shot = os.path.join(tmp, "desk.png")
-a = win.grab_once(vx, vy, min(vw, 2200), min(vh, 1400))
+a = plat.grab_once(vx, vy, min(vw, 2200), min(vh, 1400))
 Image.fromarray(a[:, :, 2::-1], "RGB").save(shot)
 print("source desktop grab:", Image.open(shot).size)
 

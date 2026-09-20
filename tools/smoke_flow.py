@@ -1,10 +1,10 @@
 """The whole path the shortcut takes: start_gif -> region selector -> recording frame on screen."""
 import os, sys, time, tkinter as tk
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from magcopy import win, overlay
+from magcopy import plat, overlay
 from magcopy.theme import register_fonts
 
-win.set_dpi_aware(); register_fonts()
+plat.set_dpi_aware(); register_fonts()
 root = tk.Tk()
 try: root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
 except Exception: pass
@@ -14,7 +14,7 @@ app.hide_window()
 want = app.theme.c["record"]
 wr, wg, wb = int(want[1:3], 16), int(want[3:5], 16), int(want[5:7], 16)
 
-vx, vy, _, _ = win.virtual_screen()
+vx, vy, _, _ = plat.virtual_screen()
 SEL = ((360, 300), (980, 700))                       # drag in selector-local coords
 state = {"rect": None, "samples": []}
 
@@ -40,7 +40,7 @@ def sample(tag):
     if rf is None:
         state["samples"].append((tag, None)); print("  %-20s NO RecordFrame object" % tag); return
     x, y, w_, h_ = rf.rect
-    rgb = win.grab_once(x - 8, y - 8, w_ + 16, h_ + 16)[:, :, 2::-1]
+    rgb = plat.grab_once(x - 8, y - 8, w_ + 16, h_ + 16)[:, :, 2::-1]
     patches = {"top": rgb[2:9, 8 + w_ // 2 - 2:8 + w_ // 2 + 2],
                "left": rgb[8 + h_ // 2 - 2:8 + h_ // 2 + 2, 2:9],
                "corner tl": rgb[1:10, 14:32]}

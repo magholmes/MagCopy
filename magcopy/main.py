@@ -7,7 +7,7 @@ from tkinter import messagebox
 from .binaries import TOOLS
 from .settings import APP_NAME, APP_VERSION, log_exc, setup_crash_logging
 from .theme import register_fonts
-from . import win
+from . import plat
 
 _CRASH_FH = None
 
@@ -23,7 +23,7 @@ def _missing_python_packages():
 
 
 def selftest(argv=None):
-    """Check an installation without opening a window: `MagCopy.exe --selftest`.
+    """Check an installation without opening a window: `MagCopy --selftest`.
 
     A frozen build resolves paths differently from a checkout (bundled files land in a temporary
     _MEIPASS folder, settings move to %APPDATA%), so this is also how the release .exe is verified.
@@ -31,7 +31,7 @@ def selftest(argv=None):
     import tkinter as tk
     from .settings import APP_DIR, RES_DIR, SETTINGS_DIR, FROZEN, save_dir, DEFAULTS
     from .binaries import TOOLS, run
-    from . import win as W
+    from . import plat as W
 
     lines, ok = [], True
 
@@ -64,6 +64,7 @@ def selftest(argv=None):
         check("captures dir", False, str(e))
 
     W.set_dpi_aware()
+    root = _new_root()                       # before any AppKit call - see _new_root
     try:
         vx, vy, vw, vh = W.virtual_screen()
         arr = W.grab_once(vx, vy, min(320, vw), min(200, vh))
@@ -72,17 +73,22 @@ def selftest(argv=None):
     except Exception as e:
         check("screen capture", False, str(e))
     try:
-        root = tk.Tk()
-        root.withdraw()
         from .theme import Fonts, register_fonts
         register_fonts()
         f = Fonts(root, 1.0)
         check("fonts", True, "%s / %s" % (f.sans, f.mono))
-        root.destroy()
     except Exception as e:
         check("tk + fonts", False, str(e))
     parsed = W.parse_hotkey(DEFAULTS["hotkey_shot"])
     check("hotkey parsing", parsed is not None, DEFAULTS["hotkey_shot"])
+    if sys.platform == "darwin":
+        # these two are the difference between "works" and "silently captures nothing"
+        check("screen recording", W.has_screen_recording(),
+              "granted" if W.has_screen_recording() else
+              "DENIED - System Settings > Privacy & Security > Screen Recording")
+        lines.append("%-22s %s %s" % ("accessibility", "ok  ",
+                                      "granted" if W.has_accessibility() else
+                                      "not granted (not needed: the shortcuts use Carbon)"))
 
     report = os.linesep.join([
         "%s %s self-test" % (APP_NAME, APP_VERSION),
@@ -101,13 +107,57 @@ def selftest(argv=None):
     if FROZEN and "--quiet" not in (argv or []):
         try:
             import tkinter.messagebox as mb
-            r = tk.Tk()
-            r.withdraw()
             mb.showinfo("%s self-test" % APP_NAME, report)
-            r.destroy()
         except Exception:
             pass
+    try:
+        root.destroy()
+    except Exception:
+        pass
     return 0 if ok else 1
+
+
+def _new_root():
+    """Create the Tk root, and do it before anything else touches AppKit.
+
+    Tk 9 on macOS installs its own NSApplication subclass, TKApplication, and then calls methods
+    that exist only on it - `macOSVersion` is the first, reached while resolving a system colour.
+    NSApplication is a singleton, so whoever creates it first wins: if any AppKit or Core Graphics
+    call has already brought a plain NSApplication into being, Tk gets that one instead and dies
+    on its first colour lookup with "unrecognized selector sent to instance".
+
+    It costs nothing to create the root first and everything to get it wrong, and it is invisible
+    from a source checkout - where the permission is already granted, so the call that would have
+    tripped it never runs. It only appears in a fresh bundle, on someone else's Mac.
+    """
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
+    except Exception:
+        pass
+    return root
+
+
+def _permission_panel():
+    """Name the permission, say what it is for, and open the pane that grants it.
+
+    Without this the first run of a denied build is a screenshot of an empty desktop and no
+    error anywhere - the single most likely way a working macOS build looks broken.
+    """
+    try:
+        from tkinter import messagebox
+        go = messagebox.askretrycancel(
+            "%s needs permission" % APP_NAME,
+            "%s cannot see the screen yet.\n\n"
+            "System Settings -> Privacy & Security -> Screen Recording, and switch %s on. "
+            "macOS only asks once, so the switch is the way back if the prompt has gone.\n\n"
+            "Screenshots and recordings come out blank until it is on.\n\n"
+            "Open that pane now?" % (APP_NAME, APP_NAME))
+        if go:
+            plat.open_privacy_pane("ScreenCapture")
+    except Exception:
+        log_exc("permission panel")
 
 
 def main(argv=None):
@@ -115,9 +165,22 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     _CRASH_FH = setup_crash_logging()
 
-    if os.name != "nt":
-        print("%s needs Windows: it uses Win32 capture, clipboard and hotkeys." % APP_NAME)
+    if os.name != "nt" and sys.platform != "darwin":
+        print("%s runs on Windows and macOS: the capture, clipboard and hotkeys are native to "
+              "each." % APP_NAME)
         return 2
+
+    plat.set_dpi_aware()
+    register_fonts()
+    root = _new_root()                       # before any AppKit call - see _new_root
+
+    if sys.platform == "darwin" and not plat.has_screen_recording():
+        # A denied Screen Recording permission is the one failure that looks like a working app:
+        # ScreenCaptureKit keeps answering and returns the desktop with every other window
+        # missing. Ask before anything else, and say where the switch is if the ask is refused.
+        plat.request_screen_recording()
+        if not plat.has_screen_recording() and "--no-permission-prompt" not in argv:
+            _permission_panel()
 
     if "--selftest" in argv:
         return selftest(argv)
@@ -125,33 +188,29 @@ def main(argv=None):
     from .tray import already_running, wake_running_instance
     if already_running() and "--allow-multiple" not in argv:
         wake_running_instance()                  # bring the existing copy forward instead
+        try:
+            root.destroy()
+        except Exception:
+            pass
         return 0
 
     missing = _missing_python_packages()
     if missing:
-        root = tk.Tk()
-        root.withdraw()
         messagebox.showerror(APP_NAME, "Missing Python packages: %s\n\nInstall with:\n"
                                        "  python -m pip install %s"
                              % (", ".join(missing), " ".join(missing)))
         return 1
 
-    win.set_dpi_aware()
-    register_fonts()
-    root = tk.Tk()
-    try:
-        root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
-    except Exception:
-        pass
     from .settings import RES_DIR, APP_DIR
-    for base in (RES_DIR, APP_DIR):
-        ico = os.path.join(base, "icon.ico")
-        if os.path.exists(ico):
-            try:
-                root.iconbitmap(default=ico)
-                break
-            except Exception:
-                pass
+    if os.name == "nt":
+        for base in (RES_DIR, APP_DIR):
+            ico = os.path.join(base, "icon.ico")
+            if os.path.exists(ico):
+                try:
+                    root.iconbitmap(default=ico)
+                    break
+                except Exception:
+                    pass
 
     from .app import App
     app = App(root)

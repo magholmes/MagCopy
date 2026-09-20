@@ -12,10 +12,10 @@ import sys
 import tkinter as tk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from magcopy import overlay, win
+from magcopy import overlay, plat
 from magcopy.theme import Fonts, Theme, register_fonts
 
-win.set_dpi_aware()
+plat.set_dpi_aware()
 register_fonts()
 root = tk.Tk()
 root.withdraw()

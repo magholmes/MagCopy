@@ -1,12 +1,12 @@
 """Does the capture loop actually hit its frame interval, and is the master the right length?"""
 import os, sys, time, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from magcopy import win, optimize
+from magcopy import plat, optimize
 from magcopy.recorder import Recorder
 
-win.set_dpi_aware()
+plat.set_dpi_aware()
 tmp = tempfile.mkdtemp(prefix="magcopy-pace-")
-vx, vy, _, _ = win.virtual_screen()
+vx, vy, _, _ = plat.virtual_screen()
 ok = True
 for fps, secs in ((25, 4), (50, 3)):
     out = os.path.join(tmp, "p%d.mp4" % fps)

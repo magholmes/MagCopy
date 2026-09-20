@@ -1,14 +1,15 @@
 """Build the app, walk every theme and scale, drive a real screenshot, shoot the window."""
 import os, sys, time, tkinter as tk
+import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PIL import Image
 import numpy as np
-from magcopy import win, overlay
+from magcopy import plat, overlay
 from magcopy.theme import register_fonts, THEME_ORDER
 from magcopy.main import _missing_python_packages
 
-win.set_dpi_aware(); register_fonts()
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.environ["TEMP"], "magcopy_ui")
+plat.set_dpi_aware(); register_fonts()
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "magcopy_ui")
 os.makedirs(OUT, exist_ok=True)
 
 root = tk.Tk()
@@ -19,7 +20,7 @@ from magcopy.app import App
 app = App(root)
 root.update(); root.update_idletasks()
 failed = list(app.hotkeys._failed)
-print("app built. hotkeys failed:", failed, "| tray hwnd:", bool(app.tray.hwnd))
+print("app built. hotkeys failed:", failed, "| tray installed:", bool(app.tray.ok))
 if failed:
     # another copy of MagCopy (or another app) already owns the shortcut. That is the conflict
     # path working, not a defect, so report it rather than failing the run.
@@ -29,7 +30,7 @@ def shoot(name):
     root.update(); root.update_idletasks(); time.sleep(0.35); root.update()
     x, y = root.winfo_rootx(), root.winfo_rooty()
     w_, h_ = root.winfo_width(), root.winfo_height()
-    a = win.grab_once(x - 2, y - 2, w_ + 4, h_ + 4)
+    a = plat.grab_once(x - 2, y - 2, w_ + 4, h_ + 4)
     Image.fromarray(a[:, :, 2::-1], "RGB").save(os.path.join(OUT, name))
     return (w_, h_)
 
@@ -54,8 +55,8 @@ def driven(self):
 overlay.RegionSelector.run = driven
 app.start_screenshot()
 root.update()
-has, nbytes = win.clipboard_image_info()
-print("clipboard after screenshot: CF_DIB=%s bytes=%d" % (has, nbytes))
+has, nbytes = plat.clipboard_image_info()
+print("clipboard after screenshot: image=%s bytes=%d" % (has, nbytes))
 overlay.RegionSelector.run = orig_run
 
 app.toast("this is what a message looks like")
@@ -63,7 +64,7 @@ shoot("04_toast.png")
 app._remember(os.path.join(OUT, "01_dusk.png"), "680 × 440", 123456)
 shoot("05_recent.png")
 
-ok = bool(has and nbytes > 1000 and app.tray.hwnd)
+ok = bool(has and nbytes > 1000 and app.tray.ok)
 print("UI SMOKE", "OK" if ok else "PROBLEM")
 app.quit()
 print("files:", sorted(os.listdir(OUT)))

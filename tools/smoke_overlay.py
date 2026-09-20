@@ -2,10 +2,10 @@
 import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tkinter as tk
-from magcopy import win, overlay
+from magcopy import plat, overlay
 from magcopy.theme import Theme, Fonts, register_fonts
 
-win.set_dpi_aware()
+plat.set_dpi_aware()
 register_fonts()
 root = tk.Tk(); root.withdraw()
 theme, fonts = Theme("dusk"), Fonts(root, 1.0)
@@ -31,7 +31,7 @@ def drive():
 root.after(60, drive)
 r = sel.run()
 print("RESULT:", r)
-vx, vy, vw, vh = win.virtual_screen()
+vx, vy, vw, vh = plat.virtual_screen()
 ok = r is not None and r[2] > 0 and r[3] > 0 and vx <= r[0] and vy <= r[1]
 print("rect within virtual screen, non-empty:", ok)
 root.destroy()

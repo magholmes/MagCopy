@@ -1,10 +1,10 @@
 """Is the rectangle on screen DURING a real recording, started the way the app starts one?"""
 import os, sys, time, tkinter as tk
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from magcopy import win
+from magcopy import plat
 from magcopy.theme import register_fonts
 
-win.set_dpi_aware(); register_fonts()
+plat.set_dpi_aware(); register_fonts()
 root = tk.Tk()
 try: root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
 except Exception: pass
@@ -16,7 +16,7 @@ wr, wg, wb = int(want[1:3], 16), int(want[3:5], 16), int(want[5:7], 16)
 print("show_recording_frame setting:", app.settings["show_recording_frame"])
 print("frame colour", want)
 
-vx, vy, _, _ = win.virtual_screen()
+vx, vy, _, _ = plat.virtual_screen()
 RECT = (vx + 350, vy + 350, 640, 400)
 state = {"samples": [], "done": False}
 
@@ -30,7 +30,7 @@ def near(px):
 
 def sample(tag):
     x, y, w_, h_ = RECT
-    shot = win.grab_once(x - 6, y - 6, w_ + 12, h_ + 12)
+    shot = plat.grab_once(x - 6, y - 6, w_ + 12, h_ + 12)
     rgb = shot[:, :, 2::-1]
     # sample small patches rather than single pixels: the exact row a 3 px bracket lands on
     # shifts with scaling, and a one-pixel miss should not read as "the frame is not there"

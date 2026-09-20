@@ -1,8 +1,11 @@
 """Run every smoke test in order and summarise."""
 import os, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
-TESTS = ["smoke_gifinfo.py", "smoke_defaults.py", "smoke_frame.py", "smoke_overlay.py",
-         "smoke_frame_live.py", "smoke_live_overlay.py", "smoke_drag.py", "smoke_escape.py", "smoke_flow.py",
+# smoke_permission.py and smoke_own_windows.py are macOS-only and no-op elsewhere: they cover the
+# two ways a Mac build fails while looking like it works - a denied Screen Recording permission,
+# which captures an empty desktop rather than raising, and our own overlays landing in a recording.
+TESTS = ["smoke_gifinfo.py", "smoke_defaults.py", "smoke_permission.py", "smoke_own_windows.py", "smoke_frame.py", "smoke_overlay.py",
+         "smoke_frame_live.py", "smoke_live_overlay.py", "smoke_frozen.py", "smoke_drag.py", "smoke_escape.py", "smoke_flow.py",
          "smoke_pacing.py", "smoke_instance.py", "smoke_theme_colours.py", "smoke_ratio.py", "smoke_crop.py", "smoke_crop_handles.py", "smoke_editor_size.py", "smoke_done.py", "smoke_saving.py", "smoke_ui.py", "smoke_editor.py",
          "smoke_pipeline.py", "smoke_realistic.py"]
 

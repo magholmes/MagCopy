@@ -1,7 +1,7 @@
 """Crop in the editor: the maths, and a real cropped GIF out the other end."""
 import os, sys, tempfile, time, tkinter as tk
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from magcopy import win, optimize
+from magcopy import plat, optimize
 from magcopy.editor import fit_preview, SCREEN_FRACTION
 from magcopy.theme import register_fonts
 
@@ -23,14 +23,14 @@ check("never upscaled past the source", fit_preview(400, 300, 4000, 4000)[0] == 
 check("aspect ratio preserved", abs((lambda w, h: w / h)(*fit_preview(1920, 1080, 900, 900))
                                    - 1920 / 1080) < 0.02)
 
-win.set_dpi_aware(); register_fonts()
+plat.set_dpi_aware(); register_fonts()
 root = tk.Tk(); root.withdraw()
 from magcopy.app import App
 app = App(root)
 tmp = tempfile.mkdtemp(prefix="magcopy-crop-")
 app.settings["save_dir"] = tmp
 
-vx, vy, _, _ = win.virtual_screen()
+vx, vy, _, _ = plat.virtual_screen()
 master = os.path.join(tmp, "m.mp4")
 from magcopy.recorder import Recorder
 rec = Recorder((vx + 100, vy + 100, 800, 600), master, fps=25, max_seconds=2, cursor=False)

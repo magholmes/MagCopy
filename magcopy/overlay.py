@@ -12,10 +12,11 @@ keep moving while you choose. That is built from two stacked windows:
     out of it where the selection is. A uniformly translucent window cannot paint part of itself
     brighter, so instead the dim simply stops existing over the selection and the real screen
     shows through at full brightness.
-  * a *chrome* layer above it, colour-keyed so only the lines drawn on it are visible, carrying
-    the outline, crosshair, corner ticks and size readout. It is click-through, so the dim layer
-    underneath still gets the mouse. Chrome needs its own layer because anything drawn on the dim
-    window would be dimmed along with it.
+  * a *chrome* layer above it, showing only the lines drawn on it, carrying the outline,
+    crosshair, corner ticks and size readout. It is click-through, so the dim layer underneath
+    still gets the mouse. Chrome needs its own layer because anything drawn on the dim window
+    would be dimmed along with it. Windows makes the rest of that layer vanish with a colour key;
+    macOS has no such thing in Tk, so there the window is masked to the drawing instead.
 
 Tk's image subsystem costs ~300 ms on its very first PhotoImage; `prewarm` pays that once at
 startup so the first frozen capture is as fast as the tenth. The live mode needs no image at all,
@@ -34,13 +35,17 @@ import tkinter as tk
 
 from PIL import Image, ImageTk
 
-from . import win
+from . import plat
 from .settings import log_exc
 
 DIM = 0.42                      # how far the un-selected desktop is knocked back (frozen mode)
 LIVE_DIM = 0.45                 # window alpha of the dim layer (live mode)
 KEY_COLOR = "#010203"           # colour-key for the chrome layer; nothing real is this colour
 MIN_SIDE = 8                    # smaller than this is treated as a mis-click, not a selection
+# Show the selection by cutting a hole in the dim layer rather than moving a bright canvas over
+# it. Both are correct; this one is measurably faster on macOS and is not needed on Windows,
+# where the canvas move is already free and has years of use behind it.
+HOLE_PICKER = plat.IS_MAC
 _PREWARMED = [False]
 
 
@@ -78,6 +83,12 @@ class RegionSelector:
         self.shift = False
         self.bright = None                # frozen mode only: the still the screenshot is cut from
         self.chrome = None
+        self.under = None                 # frozen + hole picker: the undimmed still underneath
+        self.sel = None
+        self._chrome_keyed = False        # True when the platform has -transparentcolor
+        self._chrome_hwnd = None
+        self._top_hwnd = None
+        self._under_hwnd = None
 
     # ---- lifecycle
     def run(self):
@@ -92,7 +103,7 @@ class RegionSelector:
             return None
 
     def _run(self):
-        vx, vy, vw, vh = win.virtual_screen()
+        vx, vy, vw, vh = plat.virtual_screen()
         self.vx, self.vy, self.vw, self.vh = vx, vy, vw, vh
 
         self.top = tk.Toplevel(self.root)
@@ -116,16 +127,32 @@ class RegionSelector:
             # outright. Drawing on the dim layer instead costs a little contrast and always works.
             draw_on = self.chrome_cv if self.chrome is not None else self.cv
         else:
-            bgra = win.grab_once(vx, vy, vw, vh, cursor=False)
+            bgra = plat.grab_once(vx, vy, vw, vh, cursor=False)
             # PIL reads the BGRA buffer directly in BGRX raw mode, skipping a full-screen swap
             self.bright = Image.frombuffer("RGB", (vw, vh), bgra.tobytes(), "raw", "BGRX", 0, 1)
             self._dim_photo = ImageTk.PhotoImage(self.bright.point(_lut(DIM)))
             self.cv.create_image(0, 0, image=self._dim_photo, anchor="nw")
-            self.sel = tk.Canvas(self.top, bd=0, highlightthickness=0, bg=self.c["shade"])
-            self._sel_photo = None
+            # How the selection is shown undimmed differs by platform, and it is a measured
+            # difference rather than a stylistic one. Windows moves a second canvas holding the
+            # bright still over the dim one. On macOS moving a child canvas across a full-screen
+            # image costs 45 ms a frame - the canvas is in points and composites at twice that in
+            # each direction on a Retina display - which is visible lag on every drag. So there
+            # the bright still sits in its own window underneath and the dim layer has a hole cut
+            # in it, which is a mask change on the GPU and costs nothing measurable.
+            if HOLE_PICKER:
+                self._build_bright_layer()
+                self.sel = None
+            else:
+                self._bright_photo = ImageTk.PhotoImage(self.bright)
+                self.sel = tk.Canvas(self.top, bd=0, highlightthickness=0, bg=self.c["shade"])
+                self._sel_item = self.sel.create_image(0, 0, image=self._bright_photo,
+                                                       anchor="nw")
             draw_on = self.cv
 
         self.draw_cv = draw_on
+        self._top_hwnd = plat.toplevel_hwnd(self.top)
+        if self.under is not None:
+            plat.order_below(self._under_hwnd, self._top_hwnd)
         self._build_chrome()
         self.top.deiconify()
         self.top.lift()
@@ -161,8 +188,43 @@ class RegionSelector:
         self.root.wait_window(self.top)
         return self.result
 
+    def _build_bright_layer(self):
+        """The frozen still, full brightness, in a window directly under the dim layer.
+
+        Only the hole-punching path uses this. What shows through the hole has to be the frozen
+        picture, not the live desktop - a menu staying put while you frame it is the whole point
+        of freezing - so there has to be something holding the still underneath.
+        """
+        self.under = tk.Toplevel(self.root)
+        self.under.withdraw()
+        self.under.overrideredirect(True)
+        self.under.geometry("%dx%d+%d+%d" % (self.vw, self.vh, self.vx, self.vy))
+        self.under.attributes("-topmost", True)
+        self.under.configure(bg=self.c["shade"])
+        cv = tk.Canvas(self.under, width=self.vw, height=self.vh, bd=0, highlightthickness=0,
+                       bg=self.c["shade"])
+        cv.pack(fill="both", expand=True)
+        self._bright_photo = ImageTk.PhotoImage(self.bright)
+        cv.create_image(0, 0, image=self._bright_photo, anchor="nw")
+        self.under.deiconify()
+        self.under.update_idletasks()
+        try:
+            hwnd = plat.toplevel_hwnd(self.under)
+            plat.set_overlay_styles(hwnd)
+            plat.set_click_through(hwnd, True)
+            self._under_hwnd = hwnd
+        except Exception:
+            self._under_hwnd = None
+
     def _build_chrome_layer(self):
-        """The click-through layer the live mode draws on, so its lines are not dimmed."""
+        """The click-through layer the live mode draws on, so its lines are not dimmed.
+
+        Two ways to make everything the layer did *not* draw invisible. Windows gives the window
+        a colour key and paints the background in it. Tk on macOS has no -transparentcolor at
+        all, so the window is masked down to the shapes that were drawn on it instead - the same
+        result by the same reasoning, and exact rather than relying on no real pixel ever being
+        the key colour. `_chrome_mask` keeps that mask in step with the drawing.
+        """
         self.chrome = tk.Toplevel(self.root)
         self.chrome.withdraw()
         self.chrome.overrideredirect(True)
@@ -171,17 +233,24 @@ class RegionSelector:
         self.chrome.configure(bg=KEY_COLOR)
         try:
             self.chrome.attributes("-transparentcolor", KEY_COLOR)
+            self._chrome_keyed = True
         except Exception:
-            pass
+            self._chrome_keyed = False
         self.chrome_cv = tk.Canvas(self.chrome, width=self.vw, height=self.vh, bd=0,
                                    highlightthickness=0, bg=KEY_COLOR)
         self.chrome_cv.pack(fill="both", expand=True)
         self.chrome.deiconify()
         self.chrome.update_idletasks()        # the wrapper window must exist before it is styled
         try:                                  # keep_layer: do not clobber the colour key with alpha
-            hwnd = win.toplevel_hwnd(self.chrome)
-            win.set_overlay_styles(hwnd)
-            self._chrome_passthrough = bool(win.set_click_through(hwnd, True, keep_layer=True))
+            self._chrome_hwnd = plat.toplevel_hwnd(self.chrome)
+            plat.set_overlay_styles(self._chrome_hwnd)
+            self._chrome_passthrough = bool(
+                plat.set_click_through(self._chrome_hwnd, True, keep_layer=True))
+            if not self._chrome_keyed:
+                # no colour key: the mask is the only thing that stops this layer covering the
+                # screen in a flat sheet of KEY_COLOR, so the layer is only usable if it works
+                self._chrome_passthrough = self._chrome_passthrough and bool(
+                    plat.set_window_shape(self._chrome_hwnd, self.vw, self.vh, []))
         except Exception:
             self._chrome_passthrough = False
         if not self._chrome_passthrough:
@@ -191,19 +260,74 @@ class RegionSelector:
                 pass
             self.chrome = None
             self.chrome_cv = None
+            self._chrome_hwnd = None
+
+    def _chrome_mask(self):
+        """Cut the chrome layer down to exactly what is currently drawn on it.
+
+        Only for the masked path - with a colour key there is nothing to do. Every chrome item is
+        a line, a rectangle or a text label with a solid rectangle behind it, so each one's
+        bounding box is a faithful cover; a couple of pixels of padding takes care of line width
+        and the anti-aliasing around glyph edges.
+        """
+        if self.chrome is None or self._chrome_keyed or self._chrome_hwnd is None:
+            return
+        cv = self.chrome_cv
+        rects = []
+        for item in cv.find_all():
+            try:
+                if cv.itemcget(item, "state") == "hidden":
+                    continue
+                kind = cv.type(item)
+                filled = bool(cv.itemcget(item, "fill"))
+                try:
+                    lw = max(1, int(float(cv.itemcget(item, "width") or 1)))
+                except Exception:
+                    lw = 1
+            except Exception:
+                continue
+            # Every revealed pixel that is not part of the drawing shows the chrome canvas's own
+            # background, so the mask is kept to the drawn geometry rather than to a comfortable
+            # box around it. One pixel of slack covers anti-aliasing and no more.
+            if kind == "rectangle" and not filled:
+                # an outline: four edges. Its bounding box is the whole area inside it, which
+                # would paint over the hole in the dim layer that the selection shows through.
+                try:
+                    x1, y1, x2, y2 = [int(round(v)) for v in cv.coords(item)]
+                except Exception:
+                    continue
+                t = lw + 1
+                rects += [(x1 - t, y1 - t, (x2 - x1) + 2 * t, 2 * t),
+                          (x1 - t, y2 - t, (x2 - x1) + 2 * t, 2 * t),
+                          (x1 - t, y1 - t, 2 * t, (y2 - y1) + 2 * t),
+                          (x2 - t, y1 - t, 2 * t, (y2 - y1) + 2 * t)]
+                continue
+            try:
+                bb = cv.bbox(item)
+            except Exception:
+                continue
+            if not bb:
+                continue
+            x1, y1, x2, y2 = bb
+            rects.append((x1 - 1, y1 - 1, (x2 - x1) + 2, (y2 - y1) + 2))
+        try:
+            plat.set_window_shape(self._chrome_hwnd, self.vw, self.vh, rects)
+        except Exception:
+            pass
 
     def _destroy(self):
         try:
             self.top.grab_release()
         except Exception:
             pass
-        for w_ in (self.chrome, getattr(self, "top", None)):
+        for w_ in (self.chrome, self.under, getattr(self, "top", None)):
             try:
                 if w_ is not None:
                     w_.destroy()
             except Exception:
                 pass
         self.chrome = None
+        self.under = None
 
     def _cancel(self):
         self.result = None
@@ -343,6 +467,7 @@ class RegionSelector:
         cv.tag_raise(self.cross_v)
         cv.tag_raise(self.cross_h)
         self._place_hint()
+        self._chrome_mask()
 
     def _redraw(self):
         r = self._rect()
@@ -352,25 +477,30 @@ class RegionSelector:
         cv = self.draw_cv
         if wd < 1 or ht < 1:
             if not self.live:
-                self.sel.place_forget()
+                if self.sel is None:
+                    plat.set_window_hole(self._top_hwnd, self.vw, self.vh, None)
+                else:
+                    self.sel.place_forget()
             cv.itemconfigure(self.outline, state="hidden")
             for t in self.ticks:
                 cv.itemconfigure(t, state="hidden")
+            self._chrome_mask()
             return
         if self.live:
             # cut the selection out of the dim layer: what shows through is the live screen
             try:
-                win.set_window_hole(win.toplevel_hwnd(self.top), self.vw, self.vh, (x, y, wd, ht))
+                plat.set_window_hole(self._top_hwnd, self.vw, self.vh, (x, y, wd, ht))
             except Exception:
                 pass
         else:
             try:
-                crop = self.bright.crop((x, y, x + wd, y + ht))
-                self._sel_photo = ImageTk.PhotoImage(crop)
-                self.sel.configure(width=wd, height=ht)
-                self.sel.delete("all")
-                self.sel.create_image(0, 0, image=self._sel_photo, anchor="nw")
-                self.sel.place(x=x, y=y, width=wd, height=ht)
+                if self.sel is None:
+                    plat.set_window_hole(self._top_hwnd, self.vw, self.vh, (x, y, wd, ht))
+                else:
+                    # slide the still the opposite way the window moves, so the piece showing
+                    # through is the piece under the selection
+                    self.sel.coords(self._sel_item, -x, -y)
+                    self.sel.place(x=x, y=y, width=wd, height=ht)
             except Exception:
                 pass
         cv.coords(self.outline, x - 1, y - 1, x + wd, y + ht)
@@ -378,6 +508,7 @@ class RegionSelector:
         cv.tag_raise(self.outline)
         self._corner_ticks(x, y, wd, ht)
         self._badge(x, y, wd, ht)
+        self._chrome_mask()
 
     def _corner_ticks(self, x, y, wd, ht):
         """Short marks at each corner: enough to read the frame, not enough to clutter it."""

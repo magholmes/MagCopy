@@ -1,2 +1,9 @@
 numpy>=1.22
 Pillow>=9.0
+
+# macOS only. The Win32 layer is ctypes against libraries Windows already has; the macOS layer is
+# PyObjC, which is a real dependency. The markers keep one file working on both platforms.
+pyobjc-framework-Cocoa>=9.0; sys_platform == "darwin"
+pyobjc-framework-Quartz>=9.0; sys_platform == "darwin"
+pyobjc-framework-CoreMedia>=9.0; sys_platform == "darwin"
+pyobjc-framework-ScreenCaptureKit>=9.0; sys_platform == "darwin"

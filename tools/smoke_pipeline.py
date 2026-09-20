@@ -2,16 +2,16 @@
 import os, sys, time, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import tkinter as tk
-from magcopy import win, optimize
+from magcopy import plat, optimize
 from magcopy.binaries import TOOLS, run
 from magcopy.recorder import Recorder
 
-win.set_dpi_aware()
+plat.set_dpi_aware()
 tmp = tempfile.mkdtemp(prefix="magcopy-test-")
 print("tools:", {k: bool(v) for k, v in TOOLS.paths.items()})
 
 # ---- 1. record a real region
-vx, vy, vw, vh = win.virtual_screen()
+vx, vy, vw, vh = plat.virtual_screen()
 rect = (vx + 100, vy + 100, 900, 560)
 master = os.path.join(tmp, "master.mp4")
 rec = Recorder(rect, master, fps=25, max_seconds=3, cursor=True)

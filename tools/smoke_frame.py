@@ -2,18 +2,18 @@
 import os, sys, time, tkinter as tk
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
-from magcopy import win
+from magcopy import plat
 from magcopy.theme import Theme, Fonts, register_fonts
 from magcopy.recorder import RecordFrame
 
-win.set_dpi_aware(); register_fonts()
+plat.set_dpi_aware(); register_fonts()
 root = tk.Tk(); root.withdraw()
 theme, fonts = Theme("dusk"), Fonts(root, 1.0)
 want = theme.c["record"]
 wr, wg, wb = int(want[1:3], 16), int(want[3:5], 16), int(want[5:7], 16)
 print("expecting the frame colour", want, (wr, wg, wb))
 
-vx, vy, _, _ = win.virtual_screen()
+vx, vy, _, _ = plat.virtual_screen()
 rect = (vx + 300, vy + 300, 600, 400)
 rf = RecordFrame(root, theme, fonts, rect, lambda: None, lambda: None, 1.0)
 rf.show()
@@ -23,7 +23,7 @@ time.sleep(0.5); root.update()
 
 x, y, w_, h_ = rect
 t = 2
-shot = win.grab_once(x - 6, y - 6, w_ + 12, h_ + 12)      # a little margin around the rect
+shot = plat.grab_once(x - 6, y - 6, w_ + 12, h_ + 12)      # a little margin around the rect
 rgb = shot[:, :, 2::-1].astype(int)
 
 def near(px):

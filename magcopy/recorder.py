@@ -9,30 +9,32 @@ rectangle - a soft hairline edge with solid viewfinder brackets at the corners -
 exactly what is being recorded without ever appearing in the recording, and without shouting.
 
 Borrowed from OBS
-  * A 1 ms system timer for the duration of the capture. Windows' default scheduling granularity
-    is 15.6 ms, so an unadorned sleep cannot pace a 25 fps loop at all - frames land in clumps.
-    `timeBeginPeriod(1)` plus a short spin at the end of each wait is what makes the interval real.
-  * Above-normal thread priority while recording, so an unrelated busy process cannot shear the
-    capture.
+  * Scheduling fit to pace a frame loop, asked for by `plat.begin_precise_timing` and given back
+    at the end. On Windows that is a 1 ms system timer, because the default 15.6 ms granularity
+    cannot pace a 25 fps loop at all - frames land in clumps. macOS sleeps accurately already and
+    wants the quality-of-service class instead. Both are the same request: do not let an
+    unrelated busy process shear this.
+  * A short spin at the end of each wait, which is what makes the interval real once the
+    scheduler is willing.
   * Timing anchored to the wall clock, not to a frame counter. If a capture overruns, the loop
     repeats the previous frame to keep the timeline honest rather than letting the recording drift
     slowly out of sync with what actually happened. Repeats are counted and reported.
 
-Not borrowed
-  OBS captures through Windows Graphics Capture / DXGI desktop duplication. That is genuinely
-  better - it is hardware-accelerated and it can see GPU-composited and fullscreen-exclusive
-  windows that GDI returns as black - but it needs WinRT and D3D11 interop, which is a long way
-  past what ctypes should be asked to do. GDI BitBlt with CAPTUREBLT covers desktop and
-  application UI, which is what this tool is for; full-screen games are the known gap.
+The capture itself
+  All of the above is platform-independent, and everything below `plat.Grabber` is not. Windows
+  blits through GDI, which cannot see fullscreen-exclusive games or some GPU-composited surfaces;
+  those come out black, and that is the known gap there. macOS reads a ScreenCaptureKit stream,
+  which has no such blind spot but only sends a frame when something actually changed - so a
+  `grab` returning the same picture twice is the screen genuinely standing still, and the repeat
+  accounting above already says the right thing about it.
 """
-import ctypes
 import os
 import subprocess
 import threading
 import time
 import tkinter as tk
 
-from . import win
+from . import plat
 from .binaries import TOOLS, popen
 from .settings import log_exc
 from .theme import Label, Panel, round_rect
@@ -102,10 +104,10 @@ class RecordFrame:
         w_.geometry("%dx%d+%d+%d" % (max(1, wd), max(1, ht), x, y))
         w_.deiconify()
         try:
-            hwnd = win.toplevel_hwnd(w_)
-            win.set_overlay_styles(hwnd)
-            win.set_click_through(hwnd, True, alpha)
-            win.raise_topmost(hwnd)
+            hwnd = plat.toplevel_hwnd(w_)
+            plat.set_overlay_styles(hwnd)
+            plat.set_click_through(hwnd, True, alpha)
+            plat.raise_topmost(hwnd)
         except Exception:
             pass
         return w_
@@ -115,7 +117,7 @@ class RecordFrame:
         x, y, wd, ht = self.rect
         # the monitor the region is on, minus its taskbar - not the whole virtual desktop, or the
         # bar lands on another screen or underneath the taskbar
-        vx, vy, vw, vh = win.work_area_for(self.rect)
+        vx, vy, vw, vh = plat.work_area_for(self.rect)
         c, F = self.c, self.fonts
         bw, bh = int(250 * self.s), int(self.BAR_H * self.s)
         bx = min(max(x + wd - bw, vx + 8), vx + vw - bw - 8)
@@ -152,7 +154,7 @@ class RecordFrame:
             lb.bind("<Leave>", lambda e, l=lb, r=role: l.configure(fg=c[r]))
         bar.deiconify()
         try:                       # the bar takes clicks but must never pull focus off the
-            win.set_overlay_styles(win.toplevel_hwnd(bar))   # app being recorded
+            plat.set_overlay_styles(plat.toplevel_hwnd(bar))   # app being recorded
         except Exception:
             pass
         self.bar = bar
@@ -162,7 +164,7 @@ class RecordFrame:
         """Push every strip back into the topmost band, in case something covered it."""
         for w_ in self.windows:
             try:
-                win.raise_topmost(win.toplevel_hwnd(w_))
+                plat.raise_topmost(plat.toplevel_hwnd(w_))
             except Exception:
                 pass
 
@@ -275,20 +277,13 @@ class Recorder:
         grabber = None
         timer_raised = False
         try:
-            if os.name == "nt":
-                try:
-                    ctypes.windll.winmm.timeBeginPeriod(1)      # 15.6 ms -> 1 ms scheduling
-                    timer_raised = True
-                except Exception:
-                    pass
-                try:
-                    ctypes.windll.kernel32.SetThreadPriority(
-                        ctypes.windll.kernel32.GetCurrentThread(), 1)   # ABOVE_NORMAL
-                except Exception:
-                    pass
+            timer_raised = plat.begin_precise_timing()
             proc = popen(self._ffmpeg_args(wd, ht), stdin=subprocess.PIPE,
                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            grabber = win.Grabber(wd, ht)
+            # the capture is told the rate it is being paced at: on macOS that is what the
+            # capture stream is configured with, and asking it for frames faster than they are
+            # written is wasted work
+            grabber = plat.Grabber(wd, ht, fps=self.fps)
             interval = 1.0 / self.fps
             t0 = time.perf_counter()
             deadline = t0 + self.max_seconds
@@ -332,11 +327,7 @@ class Recorder:
             log_exc("recorder")
             self.error = "recording failed"
         finally:
-            if timer_raised:
-                try:
-                    ctypes.windll.winmm.timeEndPeriod(1)
-                except Exception:
-                    pass
+            plat.end_precise_timing(timer_raised)
             if grabber:
                 grabber.close()
             if proc:
