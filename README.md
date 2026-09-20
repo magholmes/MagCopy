@@ -8,18 +8,49 @@ Two shortcuts, no ceremony.
 Windows only.
 
 <p>
-  <a href="https://github.com/magholmes/MagCopy/releases/latest/download/MagCopy.exe">
-    <img alt="Download the latest MagCopy.exe"
-         src="https://img.shields.io/badge/download-MagCopy.exe-5E6DEE?style=for-the-badge&labelColor=16171E&color=5E6DEE&logo=windows&logoColor=white"></a>
+  <a href="https://github.com/magholmes/MagCopy/releases/latest/download/MagCopy-windows.zip">
+    <img alt="Download MagCopy for Windows"
+         src="https://img.shields.io/badge/download-MagCopy--windows.zip-5E6DEE?style=for-the-badge&labelColor=16171E&color=5E6DEE&logo=windows&logoColor=white"></a>
   &nbsp;
   <a href="https://github.com/magholmes/MagCopy/releases/latest">
     <img alt="Latest version"
          src="https://img.shields.io/github/v/release/magholmes/MagCopy?style=for-the-badge&labelColor=16171E&color=342E38&label=version"></a>
 </p>
 
-That link always serves the newest build. One file, nothing to install: double-click it and the
-shortcuts start working. It lives in the notification area. The first run may show SmartScreen's
-"Windows protected your PC" because the build is unsigned — **More info → Run anyway**.
+That link always serves the newest build. Unzip it anywhere and run `MagCopy.exe` — nothing to
+install, no setup. It lives in the notification area.
+
+There is also a single-file `MagCopy.exe` on the [releases page](https://github.com/magholmes/MagCopy/releases/latest)
+if you would rather have one file. **Chrome is much more likely to block that one**, for reasons
+worth knowing about.
+
+<details>
+<summary><b>Why a browser or scanner may call this a virus</b></summary>
+
+It is a false positive, and three things cause it.
+
+**The one-file build unpacks itself.** A single-file PyInstaller executable carries a compressed
+Python runtime and a pile of DLLs, writes them into a temporary directory at startup and runs them
+from there. That is structurally what a dropper does, and a great deal of real malware is built
+with PyInstaller, so scanners match the bootloader itself. This is by far the biggest cause — and
+it is why the download above is a zipped folder instead. Nothing self-extracts, and a `.zip` is
+not a directly executable download, so neither trigger applies.
+
+**Nothing is signed.** There is no code-signing certificate, so Windows has no reputation for the
+file. A new, unsigned executable that few people have downloaded scores badly by construction.
+Chrome reports a reputation block with the words "virus detected", which is misleading: no
+scanner necessarily found anything.
+
+**What MagCopy does looks like spyware to a behavioural engine.** It captures the screen, reads
+and writes the clipboard, registers global hotkeys, adds an autostart entry, hides in the tray and
+launches bundled executables. Every one of those is the point of the program. Together they are
+also the profile of an infostealer, and a heuristic cannot tell the difference.
+
+If Windows shows SmartScreen's "Windows protected your PC", that is the same reputation problem:
+**More info → Run anyway**. If you would rather trust nothing you cannot read, run it from source —
+it is a few hundred lines of Python and some `ctypes`, and the instructions are below.
+
+</details>
 
 There is no macOS build, and there will not be one: the capture, clipboard, hotkeys and window
 are all Win32.
@@ -146,7 +177,17 @@ python -m pip install pyinstaller
 .\build.ps1
 ```
 
-The result is a single `dist\MagCopy.exe` with the fonts and encoders inside it (large, because ffmpeg is). Settings move to `%APPDATA%\MagCopy\`.
+```powershell
+.uild.ps1 -Folder
+```
+
+`build.ps1` produces a single `dist\MagCopy.exe`; `-Folder` produces `dist\MagCopy\` plus a zipped
+`dist\MagCopy-windows.zip`. Both carry the fonts and encoders (large, because ffmpeg is), and both
+put settings in `%APPDATA%\MagCopy\`.
+
+The folder build is the one worth releasing. It does not unpack itself at startup, which is the
+behaviour that makes scanners flag a one-file build, and its own executable is 6 MB rather than
+61 MB because the runtime sits beside it instead of inside it.
 
 ## Look and feel
 
