@@ -28,7 +28,7 @@ from .binaries import TOOLS
 from .editor import GifEditor
 from .optimize import gif_info
 from .recorder import RecordFrame, Recorder
-from .settings import (APP_NAME, APP_VERSION, DEFAULTS, RES_DIR, APP_DIR, SETTINGS_DIR,
+from .settings import (APP_NAME, APP_VERSION, ASPECT_RATIOS, DEFAULTS, RES_DIR, APP_DIR, SETTINGS_DIR,
                        get_autostart, is_first_run, load, log_exc, save, save_dir, set_autostart,
                        stamped_name)
 from .theme import (Button, DotToggle, Fonts, Hairline, HotkeyField, IconButton, Label, Panel,
@@ -172,8 +172,7 @@ class App:
         self.busy = True
         was_visible = self._hide_for_capture()
         try:
-            sel = overlay.RegionSelector(self.root, self.theme, self.fonts,
-                                         "drag to copy a screenshot   ·   shift = square   ·   esc cancels")
+            sel = overlay.selector_for(self.root, self.theme, self.fonts, self.settings)
             rect = sel.run()
             if not rect:
                 return
@@ -208,8 +207,8 @@ class App:
         try:
             # live=True: a recording is about to capture motion, so the screen must keep moving
             # while the region is chosen. Screenshots still freeze, which is right for a still.
-            sel = overlay.RegionSelector(
-                self.root, self.theme, self.fonts,
+            sel = overlay.selector_for(
+                self.root, self.theme, self.fonts, self.settings,
                 "drag to record   ·   %s or esc stops   ·   up to %ds"
                 % (self.settings["hotkey_gif"], self.settings["max_seconds"]), live=True)
             rect = sel.run()
@@ -576,6 +575,13 @@ class App:
                                       lambda v: self._set("show_recording_frame", v), self.scale)
         self.toggle_frame.pack(side="left", padx=(S(6), 0))
         T.add(self.toggle_frame)
+
+        r = row("shape")
+        T.add(Pills(r, F, ASPECT_RATIOS, self.settings["aspect_ratio"],
+                    lambda v: self._set("aspect_ratio", v), self.scale)).pack(side="left")
+        lab = Label(r, role="mute2", text="shift overrides", font=F.mono8, anchor="w")
+        lab.pack(side="left", padx=(S(8), 0))
+        T.add(lab)
 
         r = row("max length")
         T.add(Pills(r, F, LENGTH_CHOICES, self.settings["max_seconds"],

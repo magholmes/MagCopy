@@ -21,10 +21,14 @@ Tk's image subsystem costs ~300 ms on its very first PhotoImage; `prewarm` pays 
 startup so the first frozen capture is as fast as the tenth. The live mode needs no image at all,
 so it opens instantly.
 
-The crosshair is two thin windows that get moved, not two lines on the canvas. Moving a
-full-screen line item forces Tk to repaint - and, on a layered window, recomposite - a damage
-region the size of the screen, which measured 24 ms per mouse move: visibly laggy just hovering
-around deciding where to drag. Moving two 1-pixel windows costs 0.2 ms.
+Aiming: a real crosshair cursor, plus a small drawn cross at the pointer. Two earlier attempts
+are worth not repeating. Full-screen guide lines on the canvas cost 24 ms per mouse move, because
+moving a line that long forces a repaint - and on a layered window a recomposite - the size of the
+screen; that is visible lag just hovering around deciding where to drag. Moving thin always-on-top
+windows instead is fast, but Windows reports a one- or two-pixel layered window as mapped while
+compositing nothing at all, which left the screen with no indication of where the pointer was.
+A short cross drawn near the cursor costs 0.08 ms and actually appears, and the OS cursor is left
+visible so there is always something to aim with.
 """
 import tkinter as tk
 
@@ -58,13 +62,15 @@ def _lut(factor):
 class RegionSelector:
     """Modal region picker. `run()` returns (x, y, w, h) in virtual-screen pixels, or None."""
 
-    def __init__(self, root, theme, fonts, title="", accent=None, live=False):
+    def __init__(self, root, theme, fonts, title="", accent=None, live=False, ratio=None):
         self.root = root
         self.c = dict(theme.c)
         self.fonts = fonts
         self.title = title
         self.accent = accent or self.c["focus"]
         self.live = live
+        self.ratio = ratio                # width/height the drag is held to, or None for free
+        self.ratio_name = ""              # how to say it in the hint, e.g. "4:5"
         self.result = None
         self.start = None
         self.cur = None
@@ -72,7 +78,6 @@ class RegionSelector:
         self.shift = False
         self.bright = None                # frozen mode only: the still the screenshot is cut from
         self.chrome = None
-        self.cross = []                   # the two crosshair windows
 
     # ---- lifecycle
     def run(self):
@@ -95,7 +100,7 @@ class RegionSelector:
         self.top.overrideredirect(True)
         self.top.geometry("%dx%d+%d+%d" % (vw, vh, vx, vy))
         self.top.attributes("-topmost", True)
-        self.top.configure(bg="#000000", cursor="none")
+        self.top.configure(bg="#000000", cursor="crosshair")
         self.cv = tk.Canvas(self.top, width=vw, height=vh, bd=0, highlightthickness=0, bg="#05060A")
         self.cv.pack(fill="both", expand=True)
 
@@ -140,7 +145,6 @@ class RegionSelector:
             self.top.bind("<Key-%s>" % key, lambda e, a=dx, b=dy: self._nudge(a, b))
         self.top.bind("<Control-a>", lambda e: self._select_all())
 
-        self._build_cross()
         px, py = self.top.winfo_pointerx(), self.top.winfo_pointery()
         self._draw_idle(px - vx, py - vy)
         self.root.wait_window(self.top)
@@ -174,12 +178,6 @@ class RegionSelector:
             self.top.grab_release()
         except Exception:
             pass
-        for t, _ in self.cross:
-            try:
-                t.destroy()
-            except Exception:
-                pass
-        self.cross = []
         for w_ in (self.chrome, getattr(self, "top", None)):
             try:
                 if w_ is not None:
@@ -201,39 +199,22 @@ class RegionSelector:
         self._destroy()
 
     # ---- chrome
-    def _build_cross(self):
-        """Two thin click-through windows. Moving them is ~100x cheaper than redrawing lines."""
-        for wd, ht in ((1, self.vh), (self.vw, 1)):
-            try:
-                t = tk.Toplevel(self.root)
-                t.overrideredirect(True)
-                t.geometry("%dx%d+%d+%d" % (wd, ht, self.vx, self.vy))
-                t.configure(bg=self.c["mute"])
-                t.attributes("-topmost", True)
-                t.deiconify()
-                hwnd = win.toplevel_hwnd(t)
-                win.set_overlay_styles(hwnd)
-                win.set_click_through(hwnd, True, 130)
-                self.cross.append((t, hwnd))
-            except Exception:
-                pass
-
-    def _hide_cross(self):
-        for t, _ in self.cross:
-            try:
-                t.withdraw()
-            except Exception:
-                pass
+    CROSS_ARM = 16                    # half-length of the drawn cross, in pixels
 
     def _build_chrome(self):
         c, cv = self.c, self.draw_cv
+        self.cross_v = cv.create_line(0, 0, 0, 0, fill=self.accent, width=1, state="hidden")
+        self.cross_h = cv.create_line(0, 0, 0, 0, fill=self.accent, width=1, state="hidden")
         self.outline = cv.create_rectangle(0, 0, 0, 0, outline=self.accent, width=1, state="hidden")
         self.ticks = [cv.create_line(0, 0, 0, 0, fill=self.accent, width=2, state="hidden")
                       for _ in range(8)]
         self.badge_bg = cv.create_rectangle(0, 0, 0, 0, fill=c["bg"], outline=c["hair"], state="hidden")
         self.badge_tx = cv.create_text(0, 0, text="", fill=c["ink"], font=self.fonts.mono9,
                                        anchor="nw", state="hidden")
-        hint = self.title or "drag to select   ·   shift = square   ·   esc cancels"
+        if self.ratio:
+            hint = self.title or "drag to select   ·   held to %s   ·   shift frees it   ·   esc cancels" % self.ratio_name
+        else:
+            hint = self.title or "drag to select   ·   shift = square   ·   esc cancels"
         self.hint_bg = cv.create_rectangle(0, 0, 0, 0, fill=c["bg"], outline=c["hair"])
         self.hint_tx = cv.create_text(0, 0, text=hint, fill=c["ink2"], font=self.fonts.mono9, anchor="nw")
         self._place_hint()
@@ -264,9 +245,8 @@ class RegionSelector:
         self.cur = (e.x, e.y)
         self.dragging = True
         cv = self.draw_cv
-        for item in (self.hint_bg, self.hint_tx):
+        for item in (self.hint_bg, self.hint_tx, self.cross_v, self.cross_h):
             cv.itemconfigure(item, state="hidden")
-        self._hide_cross()
         self._redraw()
 
     def _motion(self, e):
@@ -297,25 +277,52 @@ class RegionSelector:
 
     # ---- geometry
     def _rect(self):
+        """The selection, after any shape constraint and after clamping to the desktop.
+
+        Order matters: constrain first, then clamp, then constrain again. Clamping a ratio-locked
+        box at the screen edge otherwise silently changes its shape - which is the one thing a
+        locked ratio is supposed to prevent.
+        """
         if not self.start or not self.cur:
             return None
         x1, y1 = self.start
         x2, y2 = self.cur
-        if self.shift:                                   # square, following the longer side
-            side = max(abs(x2 - x1), abs(y2 - y1))
-            x2 = x1 + (side if x2 >= x1 else -side)
-            y2 = y1 + (side if y2 >= y1 else -side)
+        ratio = None
+        if self.ratio and not self.shift:                # shift is the escape hatch from a lock
+            ratio = self.ratio
+        elif self.shift and not self.ratio:              # plain shift means square
+            ratio = 1.0
+        if ratio:
+            x2, y2 = self._fit_ratio(x1, y1, x2, y2, ratio)
         x, y = min(x1, x2), min(y1, y2)
         wd, ht = abs(x2 - x1), abs(y2 - y1)
         x, y = max(0, x), max(0, y)
         wd, ht = min(wd, self.vw - x), min(ht, self.vh - y)
-        return (x, y, wd, ht)
+        if ratio and wd > 0 and ht > 0:                  # clamping may have bent it: fit inside
+            if wd / ht > ratio:
+                wd = ht * ratio
+            else:
+                ht = wd / ratio
+        return (x, y, int(round(wd)), int(round(ht)))
+
+    def _fit_ratio(self, x1, y1, x2, y2, ratio):
+        """Move the dragged corner so the box is exactly `ratio`, keeping the drag's direction."""
+        wd, ht = abs(x2 - x1), abs(y2 - y1)
+        if ht <= 0 or wd / max(ht, 1e-6) > ratio:        # the drag is wider than the shape wants
+            ht = wd / ratio
+        else:
+            wd = ht * ratio
+        return (x1 + (wd if x2 >= x1 else -wd), y1 + (ht if y2 >= y1 else -ht))
 
     # ---- painting
     def _draw_idle(self, x, y):
-        if len(self.cross) == 2:
-            win.move_window(self.cross[0][1], self.vx + x, self.vy)
-            win.move_window(self.cross[1][1], self.vx, self.vy + y)
+        cv, a = self.draw_cv, self.CROSS_ARM
+        cv.coords(self.cross_v, x, y - a, x, y + a)
+        cv.coords(self.cross_h, x - a, y, x + a, y)
+        cv.itemconfigure(self.cross_v, state="normal")
+        cv.itemconfigure(self.cross_h, state="normal")
+        cv.tag_raise(self.cross_v)
+        cv.tag_raise(self.cross_h)
         self._place_hint()
 
     def _redraw(self):
@@ -384,5 +391,14 @@ class RegionSelector:
         cv.tag_raise(self.badge_tx)
 
 
-def select_region(root, theme, fonts, title="", live=False):
-    return RegionSelector(root, theme, fonts, title, live=live).run()
+def selector_for(root, theme, fonts, settings, title="", live=False):
+    """Build a selector with the aspect ratio the settings ask for."""
+    from .settings import aspect_value
+    name = settings.get("aspect_ratio", "free")
+    sel = RegionSelector(root, theme, fonts, title, live=live, ratio=aspect_value(name))
+    sel.ratio_name = name if sel.ratio else ""
+    return sel
+
+
+def select_region(root, theme, fonts, title="", live=False, ratio=None):
+    return RegionSelector(root, theme, fonts, title, live=live, ratio=ratio).run()

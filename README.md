@@ -84,6 +84,7 @@ Everything lives in the window, and in `settings.json` next to the script (or `%
 | **theme** | dusk, night, ember, tide, paper |
 | **window size** | small → x-large |
 | **recording** | 50 / 25 / 20 fps (50 by default), cursor on or off, and whether to draw the frame |
+| **shape** | free, or hold every selection to 1:1, 4:5, 5:4, 4:3 or 16:9 — shift overrides it mid-drag |
 | **max length** | 10 / 20 / 30 / 60 seconds |
 | **size limit** | 8 / 10 / 25 / 50 MB — Discord gives 10 free, more with Nitro |
 | **after** | copy the GIF to the clipboard as a file, open the folder, also save screenshots |
@@ -99,7 +100,9 @@ Recording and screenshots pick a region differently, on purpose.
 
 **Screenshots freeze.** That one is deliberate: a menu or a tooltip stays put while you frame it, and what you framed is exactly what you get.
 
-The crosshair is two thin windows that get *moved*, not lines redrawn on a canvas. Moving a full-screen line item forces a repaint — and, on a layered window, a recomposite — the size of the screen: 24 ms per mouse move, which is visible lag just hovering around deciding where to drag. Moving two 1-pixel windows costs 0.2 ms.
+You aim with the OS crosshair cursor plus a small drawn cross at the pointer. Two earlier attempts are worth not repeating: full-screen guide lines on the canvas cost **24 ms per mouse move**, because moving a line that long forces a repaint — and on a layered window a recomposite — the size of the screen, which is visible lag just hovering around deciding where to drag. Moving thin always-on-top windows instead is fast, but Windows reports a one- or two-pixel layered window as *mapped while compositing nothing*, so the screen showed no pointer at all. A short cross near the cursor costs 0.08 ms and actually appears.
+
+With a **shape** set, the drag is held to that ratio — including when it is clamped at the edge of the desktop, which is exactly where a naive implementation quietly bends it back out of shape. Hold shift to override it for one drag; with no shape set, shift means square.
 
 ## While recording
 

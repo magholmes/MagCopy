@@ -85,6 +85,7 @@ DEFAULTS = dict(
     max_seconds=20,
     record_fps=50,                        # 50 and 25 divide into exact gif delays; 30 does not
     capture_cursor=True,
+    aspect_ratio="free",                  # "free", or "w:h" - constrains the selection while dragging
     size_limit_mb=10.0,                   # discord's free-tier ceiling
     target_headroom=0.985,                # aim just under the limit, never at it
     play_sound=False,
@@ -133,8 +134,23 @@ def load():
     return validate(s)
 
 
+ASPECT_RATIOS = [("free", "free"), ("1:1", "1:1"), ("4:5", "4:5"), ("5:4", "5:4"),
+                 ("4:3", "4:3"), ("16:9", "16:9")]
+
+
+def aspect_value(name):
+    """"4:5" -> 0.8; "free" or anything unparseable -> None."""
+    try:
+        w, h = (float(v) for v in str(name).split(":"))
+        return w / h if w > 0 and h > 0 else None
+    except Exception:
+        return None
+
+
 def validate(s):
     from .theme import THEMES
+    if s.get("aspect_ratio") not in [k for k, _ in ASPECT_RATIOS]:
+        s["aspect_ratio"] = "free"
     if s.get("theme") not in THEMES:
         s["theme"] = DEFAULTS["theme"]
     try:
