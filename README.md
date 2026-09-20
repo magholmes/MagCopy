@@ -99,6 +99,8 @@ Recording and screenshots pick a region differently, on purpose.
 
 **Screenshots freeze.** That one is deliberate: a menu or a tooltip stays put while you frame it, and what you framed is exactly what you get.
 
+The crosshair is two thin windows that get *moved*, not lines redrawn on a canvas. Moving a full-screen line item forces a repaint — and, on a layered window, a recomposite — the size of the screen: 24 ms per mouse move, which is visible lag just hovering around deciding where to drag. Moving two 1-pixel windows costs 0.2 ms.
+
 ## While recording
 
 A viewfinder marks the region for the length of the recording: a soft hairline edge stating where the boundary is, solid brackets at the four corners, and a small bar with the elapsed time and stop/cancel. The weight is in the corners rather than in the line, so the region reads as framed without a red box sitting on top of whatever you are recording.
@@ -107,7 +109,9 @@ Every piece sits *outside* the captured rectangle and is click-through, so none 
 
 ## Editing
 
-The editor opens on its own after a recording. Scrub the filmstrip, drag the handles to trim, set a speed, save. Space plays, Ctrl+S saves, Escape discards.
+The editor opens on its own after a recording, sized to your screen rather than to a fixed thumbnail — a 1280×720 recording previews at 1280×720. Scrub the filmstrip, drag the handles to trim, set a speed, save. Space plays, Ctrl+S saves, Escape discards.
+
+**Drag on the picture to crop.** The crop is applied to the full-quality master before anything is scaled, so cropping to the interesting part spends the whole size budget on it instead of on the parts you were going to throw away. `reset crop` puts it back.
 
 Preview frames are extracted once as small JPEGs and paged in on demand — scrubbing a video file through a decoder is far too slow to feel like scrubbing. The trim is still expressed in seconds against the full-quality master, so nothing about the preview limits the output.
 
@@ -134,6 +138,8 @@ MagCopy is MIT (see `LICENSE`). The tools it runs are separate programs, invoked
 | [gifski](https://gif.ski) | AGPL-3.0 |
 | [gifsicle](https://www.lcdf.org/gifsicle/) | GPL-2.0 |
 | [Geist / Geist Mono](https://vercel.com/font) | SIL Open Font Licence — see `fonts/LICENSE-Geist-OFL.txt` |
+
+The icon is built from `icon_source.jpg`, which is the author's own photograph; `python tools/make_icon.py icon_source.jpg` regenerates `icon.ico`.
 
 They are not bundled in this repository; `tools/fetch_binaries.py` downloads them.
 

@@ -543,6 +543,26 @@ HWND_TOPMOST = -1
 SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE, SWP_SHOWWINDOW = 0x0001, 0x0002, 0x0010, 0x0040
 
 
+WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW = 0x08000000, 0x00000080
+
+
+def set_overlay_styles(hwnd):
+    """Mark a window as transient chrome: never takes focus, never appears in Alt+Tab.
+
+    Every window MagCopy paints over the screen - the crosshair, the recording frame, the bar -
+    is decoration for something else. WS_EX_NOACTIVATE keeps it from stealing focus from the app
+    being recorded, and WS_EX_TOOLWINDOW keeps a dozen one-pixel strips out of the task switcher.
+    Clicks still work, so the bar's stop and cancel keep responding.
+    """
+    GWL_EXSTYLE = -20
+    try:
+        ex = u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+        u32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
+        return True
+    except Exception:
+        return False
+
+
 def raise_topmost(hwnd):
     """Re-assert a window's place in the topmost band.
 
@@ -591,6 +611,59 @@ def set_click_through(hwnd, on=True, alpha=255, keep_layer=False):
         return True
     except Exception:
         return False
+
+
+# ----------------------------------------------------------------------------- monitors
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", w.DWORD), ("rcMonitor", w.RECT), ("rcWork", w.RECT), ("dwFlags", w.DWORD)]
+
+
+_MONITORENUMPROC = ctypes.WINFUNCTYPE(w.BOOL, w.HANDLE, w.HDC, ctypes.POINTER(w.RECT), w.LPARAM)
+
+
+def monitors():
+    """Each monitor as (bounds, work_area, is_primary), in physical virtual-screen pixels.
+
+    The work area excludes the taskbar. Placing chrome against the virtual screen instead puts it
+    on whichever monitor happens to be furthest left, or underneath the taskbar.
+    """
+    found = []
+
+    def cb(hmon, hdc, lprect, data):
+        mi = _MONITORINFO()
+        mi.cbSize = ctypes.sizeof(_MONITORINFO)
+        if u32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+            b, k = mi.rcMonitor, mi.rcWork
+            found.append(((b.left, b.top, b.right - b.left, b.bottom - b.top),
+                          (k.left, k.top, k.right - k.left, k.bottom - k.top),
+                          bool(mi.dwFlags & 1)))
+        return True
+
+    try:
+        u32.EnumDisplayMonitors.argtypes = [w.HDC, ctypes.c_void_p, _MONITORENUMPROC, w.LPARAM]
+        u32.GetMonitorInfoW.argtypes = [w.HANDLE, ctypes.c_void_p]
+        u32.EnumDisplayMonitors(None, None, _MONITORENUMPROC(cb), 0)
+    except Exception:
+        pass
+    if not found:
+        vx, vy, vw, vh = virtual_screen()
+        found = [((vx, vy, vw, vh), (vx, vy, vw, vh), True)]
+    return found
+
+
+def work_area_for(rect):
+    """Work area of the monitor holding the biggest share of `rect`."""
+    x, y, wd, ht = rect
+
+    def overlap(m):
+        mx, my, mw, mh = m
+        return (max(0, min(x + wd, mx + mw) - max(x, mx))
+                * max(0, min(y + ht, my + mh) - max(y, my)))
+
+    best = max(monitors(), key=lambda m: overlap(m[0]), default=None)
+    if best and overlap(best[0]) > 0:
+        return best[1]
+    return virtual_screen()
 
 
 # ----------------------------------------------------------------------------- window regions

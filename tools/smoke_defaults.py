@@ -14,11 +14,16 @@ check("start_with_windows default", S.DEFAULTS["start_with_windows"] is True)
 check("show_recording_frame default", S.DEFAULTS["show_recording_frame"] is True)
 check("50 fps survives validate", S.validate(dict(S.DEFAULTS))["record_fps"] == 50)
 
-had = S.get_autostart()
+# Snapshot the RAW registry value, not whether get_autostart() likes it. This test toggles a
+# real user setting, and restoring it must not depend on how the app happens to interpret it -
+# an earlier version of this file keyed the restore off get_autostart() and, once that became
+# path-aware, silently deleted the user's entry instead of putting it back.
 prev = None
-if had:
+try:
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, S.RUN_KEY) as k:
         prev = winreg.QueryValueEx(k, S.APP_NAME)[0]
+except FileNotFoundError:
+    prev = None
 try:
     S.set_autostart(False)
     check("autostart can be removed", not S.get_autostart())
@@ -28,10 +33,14 @@ try:
     check("autostart registered", S.get_autostart(), cmd)
     check("autostart starts hidden", "--hidden" in cmd)
 finally:
-    S.set_autostart(False)
-    if had and prev:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, S.RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, S.RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        if prev is None:
+            try:
+                winreg.DeleteValue(k, S.APP_NAME)
+            except FileNotFoundError:
+                pass
+        else:
             winreg.SetValueEx(k, S.APP_NAME, 0, winreg.REG_SZ, prev)
-    print("   (restored the registry to how it was: autostart=%s)" % S.get_autostart())
+    print("   (registry restored exactly: %s)" % (prev or "no entry"))
 print("\nDEFAULTS", "OK" if ok else "PROBLEM")
 sys.exit(0 if ok else 1)

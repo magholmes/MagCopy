@@ -6,11 +6,12 @@ sys.path.insert(0, ROOT)
 
 # Deliberately NOT importing already_running() here: it *acquires* the mutex as a side effect,
 # so checking from this process would make the child believe a copy is already running.
-env = dict(os.environ, MAGCOPY_NO_AUTOSTART="1")
+env = dict(os.environ, MAGCOPY_NO_AUTOSTART="1",
+           MAGCOPY_INSTANCE_NAME="MagCopy-test-%d" % os.getpid())
 held = subprocess.run([sys.executable, "-c",
                        "import sys; sys.path.insert(0, r'%s');"
                        "from magcopy.tray import already_running; print(already_running())" % ROOT],
-                      capture_output=True, text=True).stdout.strip()
+                      env=env, capture_output=True, text=True).stdout.strip()
 print("another copy already running before we start:", held)
 
 first = subprocess.Popen([sys.executable, os.path.join(ROOT, "magcopy.pyw"), "--hidden"], env=env)

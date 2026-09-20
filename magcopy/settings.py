@@ -188,16 +188,54 @@ def stamped_name(prefix, ext):
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 
+def autostart_target():
+    """The command the Run key should hold for *this* copy."""
+    if FROZEN:
+        return '"%s" --hidden' % sys.executable
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    script = os.path.join(APP_DIR, "magcopy.pyw")
+    return '"%s" "%s" --hidden' % (pyw if os.path.exists(pyw) else sys.executable, script)
+
+
+def _exe_in(command):
+    """The executable path out of a Run-key command line."""
+    command = (command or "").strip()
+    if command.startswith('"'):
+        return command[1:command.find('"', 1)] if command.find('"', 1) > 0 else command
+    return command.split(" ")[0]
+
+
 def get_autostart():
+    """True only when the Run key points at THIS copy.
+
+    Checking merely that the value exists is how a moved or replaced .exe ends up reporting
+    "starts with Windows" while the entry still launches a copy that is no longer there - or
+    worse, an older one that grabs the shortcuts first.
+    """
     if os.name != "nt":
         return False
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
-            winreg.QueryValueEx(key, APP_NAME)
-        return True
+            current = winreg.QueryValueEx(key, APP_NAME)[0]
     except Exception:
         return False
+    return os.path.normcase(_exe_in(current)) == os.path.normcase(_exe_in(autostart_target()))
+
+
+def autostart_points_elsewhere():
+    """A Run entry exists but launches a different copy - worth telling the user about."""
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
+            current = winreg.QueryValueEx(key, APP_NAME)[0]
+    except Exception:
+        return None
+    if os.path.normcase(_exe_in(current)) != os.path.normcase(_exe_in(autostart_target())):
+        return _exe_in(current)
+    return None
 
 
 def set_autostart(on, target=None):
@@ -209,13 +247,7 @@ def set_autostart(on, target=None):
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
             if on:
                 if target is None:
-                    if FROZEN:
-                        target = '"%s" --hidden' % sys.executable
-                    else:
-                        pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-                        script = os.path.join(APP_DIR, "magcopy.pyw")
-                        target = '"%s" "%s" --hidden' % (
-                            pyw if os.path.exists(pyw) else sys.executable, script)
+                    target = autostart_target()
                 winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, target)
             else:
                 try:

@@ -26,9 +26,29 @@ from .settings import log_exc, save_dir, stamped_name
 from .theme import (Button, DotToggle, Hairline, Label, Panel, Pills, ProgressLine,
                     TextLink, IconButton, round_rect)
 
-PREVIEW_W = 460
+PREVIEW_MAX_W = 1280            # the preview is sized to the screen, not to a fixed 460 px
+PREVIEW_MIN_W = 420
 PREVIEW_FPS_CAP = 25.0
 STRIP_THUMBS = 24
+
+
+def preview_size(src_w, src_h, screen_w, screen_h, scale=1.0):
+    """Largest preview that leaves room for the timeline, transport and buttons below it.
+
+    The editor is where the recording is judged, so the picture should be as big as the screen
+    allows rather than a fixed thumbnail - but the chrome underneath it has a real height, and a
+    tall portrait recording must not push the buttons off the bottom of the screen.
+    """
+    chrome_h = int(330 * scale)
+    max_w = max(PREVIEW_MIN_W, min(PREVIEW_MAX_W, int(screen_w * 0.62)))
+    max_h = max(240, screen_h - chrome_h - int(80 * scale))
+    wd = min(max_w, src_w) if src_w else max_w
+    ht = int(round(wd * src_h / max(1, src_w)))
+    if ht > max_h:                                   # too tall: fit to height instead
+        ht = max_h
+        wd = int(round(ht * src_w / max(1, src_h)))
+    wd = max(PREVIEW_MIN_W // 2, wd - wd % 2)
+    return wd, max(2, ht - ht % 2)
 
 
 class Timeline(tk.Canvas):
@@ -179,6 +199,10 @@ class GifEditor:
         self._cancel_save = False
         self.result = None
         self.top = None
+        self.pw = PREVIEW_MIN_W           # preview pixel size, computed from the screen
+        self.ph = 240
+        self.crop = None                  # (x, y, w, h) in SOURCE pixels, or None for the lot
+        self._crop_drag = None
 
     # ---- lifecycle
     def open(self):
@@ -189,6 +213,9 @@ class GifEditor:
             self.app.toast("that recording could not be read", error=True)
             self.cleanup()
             return
+        sw = self.app.root.winfo_screenwidth()
+        sh = self.app.root.winfo_screenheight()
+        self.pw, self.ph = preview_size(wd, ht, sw, sh, self.s)
         self._build()
         threading.Thread(target=self._prepare, name="magcopy-preview", daemon=True).start()
 
@@ -219,7 +246,7 @@ class GifEditor:
             d = os.path.join(self.work, "prev")
             os.makedirs(d, exist_ok=True)
             r = run([TOOLS.ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", self.master,
-                     "-vf", "fps=%.6f,scale=%d:-2:flags=bilinear" % (self.preview_fps, PREVIEW_W),
+                     "-vf", "fps=%.6f,scale=%d:-2:flags=bilinear" % (self.preview_fps, self.pw),
                      "-q:v", "4", os.path.join(d, "p%05d.jpg")], timeout=600)
             if r.returncode != 0:
                 raise RuntimeError((r.stderr or b"").decode("utf-8", "replace")[:200])
@@ -307,9 +334,85 @@ class GifEditor:
         self._photo = photo
         self.canvas.delete("all")
         cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        iw, ih = photo.width(), photo.height()
+        self._img_box = ((cw - iw) / 2, (ch - ih) / 2, iw, ih)      # where the picture sits
         self.canvas.create_image(cw / 2, ch / 2, image=photo, anchor="c")
+        self._draw_crop()
         self.timeline.set_play(t)
         self.pos_label.configure(text="%.2fs" % t)
+
+    # ---- crop
+    def _to_source(self, cx, cy):
+        """Canvas point -> source pixel, clamped to the picture."""
+        ox, oy, iw, ih = getattr(self, "_img_box", (0, 0, self.pw, self.ph))
+        sw, sh = self.src[0], self.src[1]
+        fx = min(max((cx - ox) / max(1, iw), 0.0), 1.0)
+        fy = min(max((cy - oy) / max(1, ih), 0.0), 1.0)
+        return fx * sw, fy * sh
+
+    def _to_canvas(self, sx, sy):
+        ox, oy, iw, ih = getattr(self, "_img_box", (0, 0, self.pw, self.ph))
+        sw, sh = self.src[0], self.src[1]
+        return ox + (sx / max(1, sw)) * iw, oy + (sy / max(1, sh)) * ih
+
+    def _crop_press(self, e):
+        if not self.frames:
+            return
+        self._crop_drag = self._to_source(e.x, e.y)
+        self.crop = None
+        self._draw_crop()
+
+    def _crop_move(self, e):
+        if self._crop_drag is None:
+            return
+        x0, y0 = self._crop_drag
+        x1, y1 = self._to_source(e.x, e.y)
+        x, y = min(x0, x1), min(y0, y1)
+        wd, ht = abs(x1 - x0), abs(y1 - y0)
+        self.crop = (x, y, wd, ht)
+        self._draw_crop()
+
+    def _crop_release(self, e):
+        self._crop_drag = None
+        if self.crop:
+            # even dimensions and at least a usable block; anything tiny was a stray click
+            x, y, wd, ht = (int(round(v)) for v in self.crop)
+            wd, ht = wd - wd % 2, ht - ht % 2
+            sw, sh = int(self.src[0]), int(self.src[1])
+            x, y = max(0, min(x, sw - 2)), max(0, min(y, sh - 2))
+            wd, ht = max(0, min(wd, sw - x)), max(0, min(ht, sh - y))
+            self.crop = (x, y, wd, ht) if wd >= 32 and ht >= 32 else None
+        self._draw_crop()
+        self._update_estimate()
+
+    def _reset_crop(self):
+        self.crop = None
+        self._draw_crop()
+        self._update_estimate()
+
+    def _draw_crop(self):
+        """Dim what will be cut, outline what will be kept."""
+        self.canvas.delete("crop")
+        if not self.crop:
+            return
+        c = self.theme.c
+        ox, oy, iw, ih = getattr(self, "_img_box", (0, 0, self.pw, self.ph))
+        x0, y0 = self._to_canvas(self.crop[0], self.crop[1])
+        x1, y1 = self._to_canvas(self.crop[0] + self.crop[2], self.crop[1] + self.crop[3])
+        for a, b, cc, d in ((ox, oy, ox + iw, y0), (ox, y1, ox + iw, oy + ih),
+                            (ox, y0, x0, y1), (x1, y0, ox + iw, y1)):
+            if cc > a and d > b:
+                # black, not the theme background: over dark footage a bg-coloured stipple is
+                # almost invisible, and the point is to show what will be thrown away
+                self.canvas.create_rectangle(a, b, cc, d, fill="#000000", outline="",
+                                             stipple="gray75", tags="crop")
+        self.canvas.create_rectangle(x0, y0, x1, y1, outline=c["focus"], width=1, tags="crop")
+        n = max(6, min(18, int(min(x1 - x0, y1 - y0) * 0.14)))
+        for a, b, cc, d in ((x0, y0, x0 + n, y0), (x0, y0, x0, y0 + n),
+                            (x1, y0, x1 - n, y0), (x1, y0, x1, y0 + n),
+                            (x0, y1, x0 + n, y1), (x0, y1, x0, y1 - n),
+                            (x1, y1, x1 - n, y1), (x1, y1, x1, y1 - n)):
+            self.canvas.create_line(a, b, cc, d, fill=c["focus"], width=2, tags="crop")
 
     def toggle_play(self):
         self.playing = not self.playing
@@ -343,8 +446,12 @@ class GifEditor:
         wd, ht, dur, fps = self.src
         span = (self.timeline.end - self.timeline.start) / self.speed
         out_fps = min(fps or 25.0, max(fps_ladder(fps or 25.0)))
-        self.meta.configure(text="source %d × %d  ·  %.2fs after trim  ·  up to %.4g fps out"
-                                 % (wd, ht, span, out_fps))
+        if self.crop:
+            frame = "%d × %d cropped from %d × %d" % (self.crop[2], self.crop[3], wd, ht)
+        else:
+            frame = "source %d × %d" % (wd, ht)
+        self.meta.configure(text="%s  ·  %.2fs after trim  ·  up to %.4g fps out"
+                                 % (frame, span, out_fps))
 
     # ---- saving
     def save(self):
@@ -368,7 +475,7 @@ class GifEditor:
 
         opt = GifOptimizer(
             self.master, out,
-            start=self.timeline.start, end=self.timeline.end, speed=self.speed,
+            start=self.timeline.start, end=self.timeline.end, speed=self.speed, crop=self.crop,
             size_limit_bytes=int(self.settings["size_limit_mb"] * 1_000_000),
             headroom=self.settings["target_headroom"],
             on_progress=progress, should_cancel=lambda: self._cancel_save)
@@ -452,12 +559,12 @@ class GifEditor:
 
         # preview
         wd, ht, dur, fps = self.src
-        pw = PREVIEW_W
-        ph = max(120, int(round(pw * ht / max(1, wd))))
-        ph = min(ph, S(420))
-        self.canvas = tk.Canvas(root, width=S(pw), height=ph, bd=0, highlightthickness=0,
-                                bg=c["bg2"])
+        self.canvas = tk.Canvas(root, width=self.pw, height=self.ph, bd=0, highlightthickness=0,
+                                bg=c["bg2"], cursor="crosshair")
         self.canvas.pack(padx=self.PADX, pady=(S(16), S(10)))
+        self.canvas.bind("<ButtonPress-1>", self._crop_press)
+        self.canvas.bind("<B1-Motion>", self._crop_move)
+        self.canvas.bind("<ButtonRelease-1>", self._crop_release)
 
         self.timeline = Timeline(root, F, dur, self.on_range, self.seek, self.s)
         self.timeline.pack(fill="x", padx=self.PADX)
@@ -482,6 +589,12 @@ class GifEditor:
         reset = TextLink(row, "reset trim", self._reset_trim, F)
         reset.pack(side="left", padx=(S(12), 0))
         T.add(reset)
+        self.link_crop = TextLink(row, "reset crop", self._reset_crop, F, role="mute")
+        self.link_crop.pack(side="right")
+        T.add(self.link_crop)
+        hintc = Label(row, role="mute2", text="drag on the picture to crop", font=F.mono8, anchor="e")
+        hintc.pack(side="right", padx=(0, S(12)))
+        T.add(hintc)
 
         # options
         opts = Panel(root)

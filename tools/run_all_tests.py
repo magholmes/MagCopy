@@ -3,12 +3,13 @@ import os, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = ["smoke_gifinfo.py", "smoke_defaults.py", "smoke_frame.py", "smoke_overlay.py",
          "smoke_frame_live.py", "smoke_live_overlay.py", "smoke_flow.py",
-         "smoke_pacing.py", "smoke_instance.py", "smoke_ui.py", "smoke_editor.py",
+         "smoke_pacing.py", "smoke_instance.py", "smoke_crop.py", "smoke_ui.py", "smoke_editor.py",
          "smoke_pipeline.py", "smoke_realistic.py"]
 
 # constructing App() on a machine with no settings file would register "start with Windows";
 # the tests must not touch the real registry
-ENV = dict(os.environ, MAGCOPY_NO_AUTOSTART="1")
+ENV = dict(os.environ, MAGCOPY_NO_AUTOSTART="1",
+           MAGCOPY_INSTANCE_NAME="MagCopy-suite-%d" % os.getpid())
 rows = []
 for t in TESTS:
     t0 = time.time()

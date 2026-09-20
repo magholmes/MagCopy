@@ -199,7 +199,7 @@ def _even(n):
 
 class GifOptimizer:
     def __init__(self, master, out_path, start=0.0, end=None, speed=1.0,
-                 size_limit_bytes=10_000_000, headroom=0.985, max_width=None,
+                 size_limit_bytes=10_000_000, headroom=0.985, max_width=None, crop=None,
                  on_progress=None, should_cancel=None, workdir=None):
         self.master = master
         self.out_path = out_path
@@ -209,6 +209,7 @@ class GifOptimizer:
         self.limit = int(size_limit_bytes)
         self.budget = int(size_limit_bytes * headroom)
         self.max_width = max_width
+        self.crop = crop                  # (x, y, w, h) in source pixels, applied before scaling
         self.on_progress = on_progress or (lambda *a, **k: None)
         self.should_cancel = should_cancel or (lambda: False)
         self.workdir = workdir or tempfile.mkdtemp(prefix="magcopy-gif-")
@@ -241,6 +242,9 @@ class GifOptimizer:
         if not os.path.isdir(d):
             os.makedirs(d, exist_ok=True)
             vf = []
+            if self.crop:
+                cx, cy, cw, ch = (int(v) for v in self.crop)
+                vf.append("crop=%d:%d:%d:%d" % (cw, ch, cx, cy))   # before scale: crop, then fit
             if self.speed != 1.0:
                 vf.append("setpts=PTS/%.6f" % self.speed)
             vf.append("fps=%.6f" % fps)
@@ -303,7 +307,7 @@ class GifOptimizer:
         if b - a < 1.0:
             return None
         sub = GifOptimizer(self.master, os.path.join(self.workdir, "scout.gif"),
-                           start=a, end=b, speed=self.speed,
+                           start=a, end=b, speed=self.speed, crop=self.crop,
                            size_limit_bytes=self.limit, headroom=1.0,
                            should_cancel=self.should_cancel,
                            workdir=os.path.join(self.workdir, "scoutwork"))
@@ -369,6 +373,8 @@ class GifOptimizer:
         src_fps = src_fps or 25.0
         end = self.end if self.end is not None else dur
         span = max(0.05, (end - self.start) / self.speed)
+        if self.crop:                      # everything downstream sizes against what is kept
+            wd0, ht0 = int(self.crop[2]), int(self.crop[3])
         target_w = min(wd0, int(self.max_width)) if self.max_width else wd0
 
         ladder_f = fps_ladder(src_fps)

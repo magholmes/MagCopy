@@ -20,6 +20,11 @@ keep moving while you choose. That is built from two stacked windows:
 Tk's image subsystem costs ~300 ms on its very first PhotoImage; `prewarm` pays that once at
 startup so the first frozen capture is as fast as the tenth. The live mode needs no image at all,
 so it opens instantly.
+
+The crosshair is two thin windows that get moved, not two lines on the canvas. Moving a
+full-screen line item forces Tk to repaint - and, on a layered window, recomposite - a damage
+region the size of the screen, which measured 24 ms per mouse move: visibly laggy just hovering
+around deciding where to drag. Moving two 1-pixel windows costs 0.2 ms.
 """
 import tkinter as tk
 
@@ -67,6 +72,7 @@ class RegionSelector:
         self.shift = False
         self.bright = None                # frozen mode only: the still the screenshot is cut from
         self.chrome = None
+        self.cross = []                   # the two crosshair windows
 
     # ---- lifecycle
     def run(self):
@@ -134,6 +140,7 @@ class RegionSelector:
             self.top.bind("<Key-%s>" % key, lambda e, a=dx, b=dy: self._nudge(a, b))
         self.top.bind("<Control-a>", lambda e: self._select_all())
 
+        self._build_cross()
         px, py = self.top.winfo_pointerx(), self.top.winfo_pointery()
         self._draw_idle(px - vx, py - vy)
         self.root.wait_window(self.top)
@@ -156,7 +163,9 @@ class RegionSelector:
         self.chrome_cv.pack(fill="both", expand=True)
         self.chrome.deiconify()
         try:                                  # keep_layer: do not clobber the colour key with alpha
-            win.set_click_through(win.toplevel_hwnd(self.chrome), True, keep_layer=True)
+            hwnd = win.toplevel_hwnd(self.chrome)
+            win.set_overlay_styles(hwnd)
+            win.set_click_through(hwnd, True, keep_layer=True)
         except Exception:
             pass
 
@@ -165,6 +174,12 @@ class RegionSelector:
             self.top.grab_release()
         except Exception:
             pass
+        for t, _ in self.cross:
+            try:
+                t.destroy()
+            except Exception:
+                pass
+        self.cross = []
         for w_ in (self.chrome, getattr(self, "top", None)):
             try:
                 if w_ is not None:
@@ -186,10 +201,32 @@ class RegionSelector:
         self._destroy()
 
     # ---- chrome
+    def _build_cross(self):
+        """Two thin click-through windows. Moving them is ~100x cheaper than redrawing lines."""
+        for wd, ht in ((1, self.vh), (self.vw, 1)):
+            try:
+                t = tk.Toplevel(self.root)
+                t.overrideredirect(True)
+                t.geometry("%dx%d+%d+%d" % (wd, ht, self.vx, self.vy))
+                t.configure(bg=self.c["mute"])
+                t.attributes("-topmost", True)
+                t.deiconify()
+                hwnd = win.toplevel_hwnd(t)
+                win.set_overlay_styles(hwnd)
+                win.set_click_through(hwnd, True, 130)
+                self.cross.append((t, hwnd))
+            except Exception:
+                pass
+
+    def _hide_cross(self):
+        for t, _ in self.cross:
+            try:
+                t.withdraw()
+            except Exception:
+                pass
+
     def _build_chrome(self):
         c, cv = self.c, self.draw_cv
-        self.cross_v = cv.create_line(0, 0, 0, 0, fill=c["mute"], width=1, dash=(3, 4))
-        self.cross_h = cv.create_line(0, 0, 0, 0, fill=c["mute"], width=1, dash=(3, 4))
         self.outline = cv.create_rectangle(0, 0, 0, 0, outline=self.accent, width=1, state="hidden")
         self.ticks = [cv.create_line(0, 0, 0, 0, fill=self.accent, width=2, state="hidden")
                       for _ in range(8)]
@@ -227,8 +264,9 @@ class RegionSelector:
         self.cur = (e.x, e.y)
         self.dragging = True
         cv = self.draw_cv
-        for item in (self.hint_bg, self.hint_tx, self.cross_v, self.cross_h):
+        for item in (self.hint_bg, self.hint_tx):
             cv.itemconfigure(item, state="hidden")
+        self._hide_cross()
         self._redraw()
 
     def _motion(self, e):
@@ -275,11 +313,9 @@ class RegionSelector:
 
     # ---- painting
     def _draw_idle(self, x, y):
-        cv = self.draw_cv
-        cv.coords(self.cross_v, x, 0, x, self.vh)
-        cv.coords(self.cross_h, 0, y, self.vw, y)
-        cv.itemconfigure(self.cross_v, state="normal")
-        cv.itemconfigure(self.cross_h, state="normal")
+        if len(self.cross) == 2:
+            win.move_window(self.cross[0][1], self.vx + x, self.vy)
+            win.move_window(self.cross[1][1], self.vx, self.vy + y)
         self._place_hint()
 
     def _redraw(self):

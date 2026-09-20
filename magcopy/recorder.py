@@ -103,6 +103,7 @@ class RecordFrame:
         w_.deiconify()
         try:
             hwnd = win.toplevel_hwnd(w_)
+            win.set_overlay_styles(hwnd)
             win.set_click_through(hwnd, True, alpha)
             win.raise_topmost(hwnd)
         except Exception:
@@ -112,7 +113,9 @@ class RecordFrame:
     def _build_bar(self):
         """Sits below the region, or above it when there is no room underneath."""
         x, y, wd, ht = self.rect
-        vx, vy, vw, vh = win.virtual_screen()
+        # the monitor the region is on, minus its taskbar - not the whole virtual desktop, or the
+        # bar lands on another screen or underneath the taskbar
+        vx, vy, vw, vh = win.work_area_for(self.rect)
         c, F = self.c, self.fonts
         bw, bh = int(250 * self.s), int(self.BAR_H * self.s)
         bx = min(max(x + wd - bw, vx + 8), vx + vw - bw - 8)
@@ -147,6 +150,10 @@ class RecordFrame:
             lb.bind("<Enter>", lambda e, l=lb: l.configure(fg=c["ink"]))
             lb.bind("<Leave>", lambda e, l=lb, r=role: l.configure(fg=c[r]))
         bar.deiconify()
+        try:                       # the bar takes clicks but must never pull focus off the
+            win.set_overlay_styles(win.toplevel_hwnd(bar))   # app being recorded
+        except Exception:
+            pass
         self.bar = bar
         self._blink()
 

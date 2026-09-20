@@ -228,7 +228,10 @@ def already_running():
     ERROR_ALREADY_EXISTS = 183
     k32.CreateMutexW.restype = w.HANDLE
     k32.CreateMutexW.argtypes = [ctypes.c_void_p, w.BOOL, w.LPCWSTR]
-    handle = k32.CreateMutexW(None, False, r"Local\MagCopy-single-instance")
+    # MAGCOPY_INSTANCE_NAME lets a test run its own isolated instance without colliding with a
+    # real MagCopy the user has open - killing theirs to run a test is not an acceptable trade.
+    name = os.environ.get("MAGCOPY_INSTANCE_NAME") or "MagCopy-single-instance"
+    handle = k32.CreateMutexW(None, False, "Local\\" + name)
     if not handle:
         return False
     _MUTEX.append(handle)                       # keep it alive for the process lifetime

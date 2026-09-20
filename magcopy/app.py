@@ -123,9 +123,21 @@ class App:
         failed = (self.hotkeys.rebind(bindings) if self.hotkeys._thread
                   else self.hotkeys.start(bindings))
         if failed:
+            names = ", ".join(failed)
             self.root.after(300, lambda: self.toast(
-                "another app already owns: %s" % ", ".join(failed), error=True))
+                "another app already owns: %s" % names, error=True))
+            # a shortcut that silently does not work is the worst failure this app has: say so
+            # where it can be seen even when no window is open
+            self.root.after(900, lambda: self._warn_hotkey(names))
         return failed
+
+    def _warn_hotkey(self, names):
+        try:
+            self.tray.notify(APP_NAME, "Could not claim: %s. Another app (or an older copy of "
+                                       "MagCopy) already owns it - open MagCopy and pick a "
+                                       "different shortcut." % names)
+        except Exception:
+            pass
 
     def _set_hotkey(self, which, combo):
         key = "hotkey_shot" if which == "shot" else "hotkey_gif"
