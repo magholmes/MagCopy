@@ -14,17 +14,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from magcopy import plat
 
 ok = True
-_ROOT = []
+
+# The root comes first, before anything touches Carbon or AppKit, for the same reason main.py
+# creates it first: Tk installs its own NSApplication subclass, NSApplication is a singleton, and
+# Carbon's GetApplicationEventTarget will bring a plain one into being if it gets there first.
+# Tk then dies on its first colour lookup. Creating it here also matches how the app is ordered.
+import tkinter as tk
+_ROOT = tk.Tk()
+_ROOT.withdraw()
+_ROOT.update()
 
 
 def _pump_once():
     """Turn the main run loop over once, so a Carbon hotkey handler gets a chance to fire."""
-    import tkinter as tk
-    if not _ROOT:
-        r = tk.Tk()
-        r.withdraw()
-        _ROOT.append(r)
-    _ROOT[0].update()
+    _ROOT.update()
     time.sleep(0.02)
 
 
@@ -34,27 +37,48 @@ def check(name, good, detail=""):
     print("%-50s %s %s" % (name, "ok  " if good else "FAIL", detail))
 
 
-def can_synthesise():
-    """Posting a key event into the system needs Accessibility; registering a hotkey does not.
+def deliver_hotkey(entry):
+    """Put a real hotkey event through the app's own dispatch path and see if it comes out.
 
-    Worth being exact about, because it is the one place the two come apart: MagCopy itself
-    never needs Accessibility - Carbon hotkeys work without it - but a test that delivers a
-    keystroke on the user's behalf does.
+    Registering a hotkey and *receiving* one are different claims, and only the first can be
+    checked without pressing a key. This checks the second by building the event Carbon would
+    have built - class 'keyb', kind kEventHotKeyPressed, carrying an EventHotKeyID as its direct
+    object - and posting it to the main queue, which Tk drains. It needs no Accessibility, so it
+    runs everywhere rather than skipping itself on the machines that matter.
+
+    The bug it exists for: the dispatcher read the parameter under its *type* code rather than
+    kEventParamDirectObject. GetEventParameter then failed, the id came back 0, no route matched,
+    and every shortcut was silently swallowed - while registration still reported success.
     """
-    if not plat.IS_MAC:
-        return True
-    return plat.has_accessibility()
+    import ctypes.util
+    carbon = ctypes.cdll.LoadLibrary(ctypes.util.find_library("Carbon"))
+
+    class EventHotKeyID(ctypes.Structure):
+        _fields_ = [("signature", ctypes.c_uint32), ("id", ctypes.c_uint32)]
+
+    carbon.CreateEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32,
+                                   ctypes.c_double, ctypes.c_uint32,
+                                   ctypes.POINTER(ctypes.c_void_p)]
+    carbon.CreateEvent.restype = ctypes.c_int32
+    carbon.SetEventParameter.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32,
+                                         ctypes.c_uint32, ctypes.c_void_p]
+    carbon.SetEventParameter.restype = ctypes.c_int32
+    carbon.PostEventToQueue.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint16]
+    carbon.PostEventToQueue.restype = ctypes.c_int32
+    carbon.GetMainEventQueue.restype = ctypes.c_void_p
+
+    ev = ctypes.c_void_p()
+    if carbon.CreateEvent(None, 0x6B657962, 5, 0.0, 0, ctypes.byref(ev)) != 0:
+        return False
+    ident = EventHotKeyID(0x4D616743, entry[1])
+    if carbon.SetEventParameter(ev, 0x2D2D2D2D, 0x686B6964,
+                                ctypes.sizeof(ident), ctypes.byref(ident)) != 0:
+        return False
+    return carbon.PostEventToQueue(carbon.GetMainEventQueue(), ev, 1) == 0
 
 
 def tap_escape():
     """Synthesise a real Escape press; a registered hotkey only sees input at this level."""
-    if plat.IS_MAC:
-        import Quartz
-        src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStateHIDSystemState)
-        for down in (True, False):
-            ev = Quartz.CGEventCreateKeyboardEvent(src, 53, down)     # 53 = kVK_Escape
-            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
-        return
     ctypes.windll.user32.keybd_event(0x1B, 0, 0, 0)
     ctypes.windll.user32.keybd_event(0x1B, 0, 2, 0)      # KEYEVENTF_KEYUP
 
@@ -63,17 +87,17 @@ fired = threading.Event()
 hk = plat.TransientHotkey("esc", fired.set)
 check("escape registers as a global hotkey", hk.start() is True)
 
-if can_synthesise():
+if plat.IS_MAC and hk._entry:
+    posted = deliver_hotkey(hk._entry)
+    check("a hotkey event can be put through the dispatcher", posted)
+    deadline = time.time() + 3            # Tk's loop is what drains the Carbon queue
+    while not fired.is_set() and time.time() < deadline:
+        _pump_once()
+    check("...and the callback actually runs", fired.is_set(),
+          "" if fired.is_set() else "registered but never delivered - shortcuts would do nothing")
+elif not plat.IS_MAC:
     tap_escape()
-    if plat.IS_MAC:
-        # the Carbon handler is dispatched by the main run loop, which nothing is pumping here
-        deadline = time.time() + 2
-        while not fired.is_set() and time.time() < deadline:
-            _pump_once()
     check("a real escape press fires it", fired.wait(2))
-else:
-    print("%-50s %s %s" % ("a real escape press fires it", "skip",
-                           "needs Accessibility, which MagCopy itself does not"))
 
 hk.stop()
 

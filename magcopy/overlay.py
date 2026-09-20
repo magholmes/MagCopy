@@ -36,12 +36,13 @@ import tkinter as tk
 from PIL import Image, ImageTk
 
 from . import plat
-from .settings import log_exc
+from .settings import log_error, log_exc
 
 DIM = 0.42                      # how far the un-selected desktop is knocked back (frozen mode)
 LIVE_DIM = 0.45                 # window alpha of the dim layer (live mode)
 KEY_COLOR = "#010203"           # colour-key for the chrome layer; nothing real is this colour
 MIN_SIDE = 8                    # smaller than this is treated as a mis-click, not a selection
+IDLE_LIMIT_MS = 45000           # see RegionSelector._claim_screen
 # Show the selection by cutting a hole in the dim layer rather than moving a bright canvas over
 # it. Both are correct; this one is measurably faster on macOS and is not needed on Windows,
 # where the canvas move is already free and has years of use behind it.
@@ -89,6 +90,12 @@ class RegionSelector:
         self._chrome_hwnd = None
         self._top_hwnd = None
         self._under_hwnd = None
+        self._escape_hotkey = None
+        self._escape_requested = False
+        self._escape_poll = None
+        self._idle_cancel = None
+
+    IDLE_LIMIT_MS = IDLE_LIMIT_MS
 
     # ---- lifecycle
     def run(self):
@@ -159,10 +166,7 @@ class RegionSelector:
         self.top.focus_force()
         if self.chrome:
             self.chrome.lift()
-        try:
-            self.top.grab_set_global()
-        except Exception:
-            self.top.grab_set()
+        self._claim_screen()
 
         # Only the dim layer takes the mouse. Binding the chrome layer as a safety net does not
         # work and is worth not trying again: the grab below discards events aimed at windows
@@ -187,6 +191,85 @@ class RegionSelector:
         self._draw_idle(px - vx, py - vy)
         self.root.wait_window(self.top)
         return self.result
+
+    def _claim_screen(self):
+        """Put the picker in front, and make sure there is always a way back out of it.
+
+        The escape hatch is the whole point of this method, and it is deliberately not one thing.
+
+        A borderless window - which is what overrideredirect gives, and what covering the menu bar
+        needs - cannot become the key window on macOS. AppKit simply refuses, so a Tk binding on
+        <Escape> can never fire no matter how the window is focused. Taking a global grab on top
+        of that is how a picker stops being a picker and becomes a locked screen: every event in
+        the session routed to a window that is not able to answer any of them.
+
+        So: no global grab here, a real window level so it genuinely covers rather than merely
+        looking like it does, a global hotkey for Escape that works without focus at all, and a
+        timer that cancels the whole thing if nothing has happened for a while. Any one of them is
+        enough to get out. On Windows the grab is kept, because there the window takes focus
+        normally and the grab is what makes the picker modal.
+        """
+        if plat.IS_MAC:
+            # -topmost does not raise a borderless window's level here - it stays at 0, behind
+            # anything floating - so the level is set explicitly.
+            plat.set_overlay_styles(self._top_hwnd)
+            plat.raise_topmost(self._top_hwnd)
+            try:
+                self.top.grab_set()        # local: keeps events in this app, does not lock the session
+            except Exception:
+                pass
+            self._escape_hotkey = plat.TransientHotkey("esc", self._escape_pressed)
+            if self._escape_hotkey.start():
+                self._escape_poll = self.top.after(40, self._watch_escape)
+            else:
+                self._escape_hotkey = None
+        else:
+            try:
+                self.top.grab_set_global()
+            except Exception:
+                self.top.grab_set()
+        # Last resort, on both. If the picker has been up this long with no mouse movement at all,
+        # something is wrong with it and the screen is more useful back than the selection is.
+        self._idle_cancel = self.top.after(self.IDLE_LIMIT_MS, self._idle_timeout)
+
+    def _escape_pressed(self):
+        """From the global hotkey. **Touch nothing belonging to Tk from in here.**
+
+        A Carbon hotkey handler is a C callback that Tk's own event loop invokes, so it runs
+        re-entrantly inside Tcl. Calling back into Tcl from that position deadlocks: `after` hangs
+        in Tkinter._register and the picker stops responding to anything at all - which is a
+        stranger version of the bug this escape hatch exists to prevent. Setting a plain attribute
+        is safe; the poller below is what turns it into a cancel, from the right side of the loop.
+        """
+        self._escape_requested = True
+
+    def _watch_escape(self):
+        """Tk-side half of the above: notice the flag and act on it."""
+        if self._escape_requested:
+            self._escape_requested = False
+            self._cancel()
+            return
+        try:
+            self._escape_poll = self.top.after(40, self._watch_escape)
+        except Exception:
+            self._escape_poll = None
+
+    def _touch(self):
+        """Any pointer activity resets the dead-man timer."""
+        if not plat.IS_MAC and self._idle_cancel is None:
+            return
+        try:
+            if self._idle_cancel is not None:
+                self.top.after_cancel(self._idle_cancel)
+            self._idle_cancel = self.top.after(self.IDLE_LIMIT_MS, self._idle_timeout)
+        except Exception:
+            pass
+
+    def _idle_timeout(self):
+        self._idle_cancel = None
+        log_error("region selector", "no pointer activity for %ds - cancelling so the screen "
+                                     "cannot stay covered" % (self.IDLE_LIMIT_MS // 1000))
+        self._cancel()
 
     def _build_bright_layer(self):
         """The frozen still, full brightness, in a window directly under the dim layer.
@@ -316,6 +399,20 @@ class RegionSelector:
             pass
 
     def _destroy(self):
+        if self._escape_hotkey is not None:
+            try:
+                self._escape_hotkey.stop()      # give Escape back to the rest of the machine
+            except Exception:
+                pass
+            self._escape_hotkey = None
+        for attr in ("_idle_cancel", "_escape_poll"):
+            pending = getattr(self, attr, None)
+            if pending is not None:
+                try:
+                    self.top.after_cancel(pending)
+                except Exception:
+                    pass
+                setattr(self, attr, None)
         try:
             self.top.grab_release()
         except Exception:
@@ -384,6 +481,7 @@ class RegionSelector:
             self._redraw()
 
     def _press(self, e):
+        self._touch()
         self.start = (e.x, e.y)
         self.cur = (e.x, e.y)
         self.dragging = True
@@ -393,6 +491,7 @@ class RegionSelector:
         self._redraw()
 
     def _motion(self, e):
+        self._touch()
         if self.dragging:
             self.cur = (e.x, e.y)
             self._redraw()

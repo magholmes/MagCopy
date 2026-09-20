@@ -12,7 +12,7 @@ import traceback
 
 IS_MAC = sys.platform == "darwin"
 APP_NAME = "MagCopy"
-APP_VERSION = "1.3"
+APP_VERSION = "1.3.1"
 FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if FROZEN
            else os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -137,12 +137,20 @@ def is_first_run():
 
 def load():
     s = dict(DEFAULTS)
+    raw = {}
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as fh:
-            s.update({k: v for k, v in json.load(fh).items() if k in DEFAULTS})
+            raw = {k: v for k, v in json.load(fh).items() if k in DEFAULTS}
     except Exception:
         pass
-    return validate(s)
+    s.update(raw)
+    out = validate(s)
+    # A repaired value has to be written back, or the file and the running app disagree for as
+    # long as the file exists: the window would show the shortcut it is really using while
+    # settings.json went on claiming the unusable one it was corrected from.
+    if raw and any(raw.get(k) != out.get(k) for k in raw):
+        save(out)
+    return out
 
 
 ASPECT_RATIOS = [("free", "free"), ("1:1", "1:1"), ("4:5", "4:5"), ("5:4", "5:4"),
@@ -158,8 +166,25 @@ def aspect_value(name):
         return None
 
 
+def usable_hotkey(text):
+    """A global shortcut needs ctrl, alt or cmd/win - shift on its own is not enough.
+
+    The rule exists for the same reason a bare key is refused: the combination is taken from every
+    other application for as long as MagCopy runs. "shift+a" does not read as drastic, and it means
+    capital A stops working everywhere, which is a hard thing to connect back to a screenshot tool.
+    """
+    from . import plat
+    if not plat.parse_hotkey(text):
+        return False
+    parts = {p.strip().lower() for p in str(text).split("+")}
+    return bool(parts & {"ctrl", "control", "alt", "option", "cmd", "command", "win", "super"})
+
+
 def validate(s):
     from .theme import THEMES
+    for key in ("hotkey_shot", "hotkey_gif"):
+        if not usable_hotkey(s.get(key)):
+            s[key] = DEFAULTS[key]
     if s.get("aspect_ratio") not in [k for k, _ in ASPECT_RATIOS]:
         s["aspect_ratio"] = "free"
     if s.get("theme") not in THEMES:

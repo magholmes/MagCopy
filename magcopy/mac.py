@@ -33,6 +33,8 @@ import time
 import numpy as np
 from PIL import Image
 
+from .settings import log_error, log_exc
+
 IS_MAC = sys.platform == "darwin"
 
 if IS_MAC:
@@ -594,7 +596,12 @@ def clipboard_image_info():
 _CMD, _SHIFT, _OPT, _CTRL = 0x0100, 0x0200, 0x0800, 0x1000
 _EVENT_CLASS_KEYBOARD = 0x6B657962          # 'keyb'
 _EVENT_HOTKEY_PRESSED = 5
-_PARAM_HOTKEY_ID = 0x686B6964               # 'hkid'
+# Two different four-character codes, and using one for the other is silent: GetEventParameter
+# returns eventParameterNotFoundErr, the id stays 0, no route matches that, and the keystroke is
+# swallowed. Registration still succeeds and the handler still fires, so everything looks right
+# from the outside - which is how this shipped.
+_PARAM_DIRECT_OBJECT = 0x2D2D2D2D           # '----', kEventParamDirectObject: the parameter's NAME
+_TYPE_HOTKEY_ID = 0x686B6964                # 'hkid', typeEventHotKeyID: the parameter's TYPE
 _SIGNATURE = 0x4D616743                     # 'MagC'
 
 
@@ -679,15 +686,20 @@ _NEXT_HOTKEY_ID = [1]
 
 def _hotkey_dispatch(call_ref, event, user_data):
     hk = _EventHotKeyID()
-    _carbon.GetEventParameter(event, _PARAM_HOTKEY_ID, _PARAM_HOTKEY_ID, None,
-                              ctypes.sizeof(hk), None, ctypes.byref(hk))
+    st = _carbon.GetEventParameter(event, _PARAM_DIRECT_OBJECT, _TYPE_HOTKEY_ID, None,
+                                   ctypes.sizeof(hk), None, ctypes.byref(hk))
+    if st != 0:
+        log_error("hotkey dispatch", "GetEventParameter returned %d" % st)
+        return 0
     with _HOTKEY_LOCK:
         cb = _HOTKEY_ROUTES.get(int(hk.id))
-    if cb:
-        try:
-            cb()
-        except Exception:
-            pass
+    if cb is None:
+        log_error("hotkey dispatch", "no route for hotkey id %d" % int(hk.id))
+        return 0
+    try:
+        cb()
+    except Exception:
+        log_exc("hotkey callback")
     return 0
 
 
@@ -741,7 +753,14 @@ def _unregister(entry):
 
 
 class HotkeyManager:
-    """The user's shortcuts. `rebind` swaps the whole set, which is how the settings UI changes one."""
+    """The user's shortcuts. `rebind` swaps the whole set, which is how the settings UI changes one.
+
+    **A callback must not touch Tk.** Carbon delivers these through a C callback that Tk's own
+    event loop invokes, so it runs re-entrantly inside Tcl - and calling back into Tcl from there
+    deadlocks rather than failing: `after` never returns from Tkinter._register and the whole
+    program stops. Put the work on a queue and let the Tk side pick it up, which is what app.py's
+    `post` does and why every binding there is `lambda: self.post(...)`.
+    """
 
     def __init__(self, on_error=None):
         self._entries = []

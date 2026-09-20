@@ -461,6 +461,12 @@ class Button(tk.Canvas):
         self.draw()
 
 
+FOURTH_MOD = "cmd" if sys.platform == "darwin" else "win"
+MOD_ORDER = ("ctrl", "shift", "alt", FOURTH_MOD)
+NEEDS_MOD = ("needs cmd, ctrl, alt or shift" if sys.platform == "darwin"
+             else "needs ctrl, alt or shift")
+
+
 class HotkeyField(tk.Canvas):
     """Click it, then press a combination; it shows what it captured and hands back the string.
 
@@ -468,8 +474,15 @@ class HotkeyField(tk.Canvas):
     field has focus, and Escape leaves the old value alone.
     """
 
+    # The fourth modifier is the Windows key on one platform and Command on the other, and Tk
+    # names it differently again: Super_L on X11-ish builds, Meta_L on Aqua. Leaving the Aqua
+    # names out is not a cosmetic bug - Command is simply dropped, so a Mac user pressing
+    # Cmd+Shift+A gets "shift+a" recorded, which is a shortcut nobody asked for and which eats
+    # capital A everywhere.
     MODS = {"Control_L": "ctrl", "Control_R": "ctrl", "Shift_L": "shift", "Shift_R": "shift",
-            "Alt_L": "alt", "Alt_R": "alt", "Super_L": "win", "Super_R": "win"}
+            "Alt_L": "alt", "Alt_R": "alt", "Option_L": "alt", "Option_R": "alt",
+            "Super_L": FOURTH_MOD, "Super_R": FOURTH_MOD,
+            "Meta_L": FOURTH_MOD, "Meta_R": FOURTH_MOD, "Command": FOURTH_MOD}
     NAMED = {"space": "space", "Tab": "tab", "Return": "enter", "Delete": "delete", "Insert": "insert",
              "Home": "home", "End": "end", "Prior": "pageup", "Next": "pagedown", "BackSpace": "backspace",
              "Up": "up", "Down": "down", "Left": "left", "Right": "right", "Print": "printscreen",
@@ -523,16 +536,23 @@ class HotkeyField(tk.Canvas):
             return "break"
         key = self.NAMED.get(name)
         if key is None:
-            if len(name) == 1 and (name.isalpha() or name.isdigit()):
+            if len(name) == 1 and name.isascii() and (name.isalpha() or name.isdigit()):
                 key = name.lower()
             elif name.lower().startswith("f") and name[1:].isdigit():
                 key = name.lower()
             else:
-                return "break"
-        if not self._mods:                      # a bare key would swallow that key system-wide
-            self.draw(warn="needs ctrl, alt or shift")
+                # Holding Option changes what a key produces - Option+A is "å" - so the keysym is
+                # no longer a name we can store. The physical key is still the right answer.
+                key = self._physical_key(e)
+                if key is None:
+                    self.draw(warn="that key cannot be used")
+                    return "break"
+        # shift on its own is refused for the same reason a bare key is: the combination is taken
+        # from every other application, and "shift+a" quietly means capital A stops working
+        if not (self._mods - {"shift"}):
+            self.draw(warn=NEEDS_MOD)
             return "break"
-        order = [m for m in ("ctrl", "shift", "alt", "win") if m in self._mods]
+        order = [m for m in MOD_ORDER if m in self._mods]
         combo = "+".join(order + [key])
         self.capturing = False
         self._mods = set()
@@ -540,6 +560,20 @@ class HotkeyField(tk.Canvas):
         self.draw()
         self.command(combo)
         return "break"
+
+    def _physical_key(self, e):
+        """The key by position rather than by the character it happened to produce."""
+        code = getattr(e, "keycode", None)
+        if code is None:
+            return None
+        try:
+            from . import plat
+            for name, vk in plat.VK_NAMES.items():
+                if vk == code and len(name) == 1:
+                    return name
+        except Exception:
+            pass
+        return None
 
     def _key_up(self, e):
         if self.capturing and e.keysym in self.MODS:
@@ -556,7 +590,7 @@ class HotkeyField(tk.Canvas):
         wd, h = self.winfo_reqwidth(), int(24 * self.s)
         if self.capturing:
             outline, fill = c["focus"], c["bg2"]
-            live = "+".join([m for m in ("ctrl", "shift", "alt", "win") if m in self._mods])
+            live = "+".join([m for m in MOD_ORDER if m in self._mods])
             text = (live + "+…") if live else "press keys…"
             fg = c["ink"]
         else:

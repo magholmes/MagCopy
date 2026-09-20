@@ -172,6 +172,9 @@ class App:
 
     def start_screenshot(self):
         if self.busy:
+            # `busy` is cleared in the finally below, so this only ever means a capture really is
+            # in progress. It is worth being sure of: a version of this that could leave the flag
+            # set made every shortcut afterwards do nothing, with no way to tell why.
             return
         self.busy = True
         was_visible = self._hide_for_capture()
