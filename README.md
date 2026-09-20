@@ -7,16 +7,29 @@ Two shortcuts, no ceremony.
 
 Both shortcuts are rebindable. Windows only.
 
+<p>
+  <a href="https://github.com/magholmes/MagCopy/releases/latest/download/MagCopy.exe">
+    <img alt="Download MagCopy for Windows"
+         src="https://img.shields.io/badge/download-MagCopy.exe-E7DBF0?style=for-the-badge&labelColor=16171E&color=4F4756&logo=windows&logoColor=E7DBF0"></a>
+</p>
+
+One file, nothing to install. Double-click it and the shortcuts start working; it lives in the
+notification area. The first run may show SmartScreen's "Windows protected your PC" because the
+build is unsigned — **More info → Run anyway**.
+
+There is no macOS build, and there will not be one: the capture, clipboard, hotkeys and window
+are all Win32.
+
 ![MagCopy](docs/window.png)
 
 *dusk, one of five palettes — also night, ember, tide and paper.*
 
-## Install
+## Running from source
 
 MagCopy needs Python 3.9+ with `numpy` and `Pillow`, and three external encoders.
 
 ```bash
-git clone https://github.com/magnusholmes-cmyk/MagCopy.git
+git clone https://github.com/magholmes/MagCopy.git
 cd MagCopy
 python -m pip install -r requirements.txt
 python tools/fetch_binaries.py      # downloads ffmpeg, gifski and gifsicle into ./bin
@@ -93,7 +106,7 @@ The result is a single `dist\MagCopy.exe` with the fonts and encoders inside it 
 
 ## Look and feel
 
-Are.na's colour ladders, the layout language of the magnus archive site — hairlines, Geist and Geist Mono, lowercase mono labels, pill controls — in a frameless, rounded window. Same as [Opmize](https://github.com/magnusholmes-cmyk/Opmize), which is where the design came from. Rounded corners need Windows 11; on Windows 10 they stay square.
+Are.na's colour ladders, the layout language of the magnus archive site — hairlines, Geist and Geist Mono, lowercase mono labels, pill controls — in a frameless, rounded window. Same as [Opmize](https://github.com/magholmes/Opmize), which is where the design came from. Rounded corners need Windows 11; on Windows 10 they stay square.
 
 ## Licences
 
@@ -107,6 +120,15 @@ MagCopy is MIT (see `LICENSE`). The tools it runs are separate programs, invoked
 | [Geist / Geist Mono](https://vercel.com/font) | SIL Open Font Licence — see `fonts/LICENSE-Geist-OFL.txt` |
 
 They are not bundled in this repository; `tools/fetch_binaries.py` downloads them.
+
+## Checking an install
+
+```powershell
+MagCopy.exe --selftest
+```
+
+Reports whether the encoders, settings folder, screen capture, clipboard, fonts and hotkey parsing
+are all working, and leaves the same report in `%APPDATA%\MagCopy\selftest.txt`.
 
 ## Known limits
 

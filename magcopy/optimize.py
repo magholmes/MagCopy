@@ -52,6 +52,8 @@ MAX_RUNGS = 3               # distinct (scale, fps) pairs to try; each needs a f
 SCOUT_SECONDS = 4.0         # length of the sample used to estimate the full encode
 SCOUT_MIN_SPAN = 7.0        # below this the real thing is cheap enough to just encode
 HOPELESS = 2.6              # a probe this far over budget cannot be rescued by quality alone
+MAX_FRAMES = 2400           # gifski takes every frame as an argument; Windows caps a command
+                            # line at ~32k characters, and 2400 names is about 21k of that
 
 
 class Cancelled(Exception):
@@ -269,6 +271,8 @@ class GifOptimizer:
         frame_dir, files = self._extract(width, fps)
         args = [TOOLS.gifski, "-q", "-Q", str(int(quality)), "-r", "%.6f" % fps,
                 "-W", str(int(width)), "--no-sort", "-o", os.path.abspath(out)] + files
+        if sum(len(a) + 1 for a in args) > 30000:
+            raise RuntimeError("too many frames for one command line (%d)" % len(files))
         kw = dict(creationflags=CREATE_NO_WINDOW) if os.name == "nt" else {}
         r = subprocess.run(args, cwd=frame_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            timeout=1800, **kw)
@@ -374,8 +378,13 @@ class GifOptimizer:
             if wpx < 60:
                 continue
             for f in ladder_f:
+                if f * span > MAX_FRAMES:                       # see MAX_FRAMES
+                    continue
                 if (wpx, f) not in [(r[0], r[1]) for r in rungs]:
                     rungs.append((wpx, f, s))
+        if not rungs:                                           # a very long clip: take the slowest rate
+            f = min(ladder_f)
+            rungs = [(_even(target_w), f, 1.0)]
 
         keep = os.path.join(self.workdir, "best.gif")
         best = None

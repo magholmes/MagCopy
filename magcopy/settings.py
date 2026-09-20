@@ -31,12 +31,44 @@ SETTINGS_DIR = _settings_dir()
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
 
 
+def _known_pictures():
+    """Ask Windows where Pictures actually is.
+
+    Guessing %USERPROFILE%\\Pictures is wrong on any machine where OneDrive has redirected the
+    folder, which is most of them - captures then land in the user's root instead.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        FOLDERID_Pictures = "{33E28130-4E1E-4676-835A-98395C3BC3BB}"
+        guid = ctypes.create_unicode_buffer(FOLDERID_Pictures)
+        iid = (ctypes.c_byte * 16)()
+        if ctypes.windll.ole32.IIDFromString(guid, ctypes.byref(iid)) != 0:
+            return None
+        out = ctypes.c_wchar_p()
+        if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(iid), 0, None,
+                                                      ctypes.byref(out)) != 0:
+            return None
+        path = out.value
+        ctypes.windll.ole32.CoTaskMemFree(out)
+        return path if path and os.path.isdir(path) else None
+    except Exception:
+        return None
+
+
 def default_save_dir():
+    pics = _known_pictures()
+    if pics:
+        return os.path.join(pics, APP_NAME)
     for env in ("USERPROFILE", "HOME"):
         base = os.environ.get(env)
         if base:
-            pics = os.path.join(base, "Pictures")
-            return os.path.join(pics if os.path.isdir(pics) else base, APP_NAME)
+            for cand in (os.path.join(base, "OneDrive", "Pictures"), os.path.join(base, "Pictures")):
+                if os.path.isdir(cand):
+                    return os.path.join(cand, APP_NAME)
+            return os.path.join(base, APP_NAME)
     return os.path.join(APP_DIR, "captures")
 
 
