@@ -46,9 +46,15 @@ for name, px in samples.items():
     hit = near(px)
     ok = ok and hit
     print("  %-12s rgb%-18s %s" % (name, tuple(int(v) for v in px), "FRAME VISIBLE" if hit else "not drawn"))
+# The centre must be tested strictly, not with the loose red-shift rule the soft edge needs:
+# ordinary warm screen content (pink, skin tones, a white window) trips that rule and would
+# read as "the frame is covering the capture area". That nothing overlaps the capture rectangle
+# is proved properly by the geometry check in smoke_realistic.py; here it is only a sanity look.
 inside = rgb[6 + h_ // 2, 6 + w_ // 2]
-print("  %-12s rgb%-18s (should NOT be the frame colour)" % ("centre", tuple(int(v) for v in inside)))
-if near(inside):
+strict = (abs(int(inside[0]) - wr) < 18 and abs(int(inside[1]) - wg) < 18
+          and abs(int(inside[2]) - wb) < 18)
+print("  %-12s rgb%-18s (must not be solid frame colour)" % ("centre", tuple(int(v) for v in inside)))
+if strict:
     print("  FAIL: the frame is covering the capture area"); ok = False
 rf.destroy(); root.update(); root.destroy()
 print("\nRECORDING FRAME", "OK" if ok else "NOT VISIBLE")

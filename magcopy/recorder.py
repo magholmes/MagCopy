@@ -102,7 +102,9 @@ class RecordFrame:
         w_.geometry("%dx%d+%d+%d" % (max(1, wd), max(1, ht), x, y))
         w_.deiconify()
         try:
-            win.set_click_through(win.toplevel_hwnd(w_), True, alpha)
+            hwnd = win.toplevel_hwnd(w_)
+            win.set_click_through(hwnd, True, alpha)
+            win.raise_topmost(hwnd)
         except Exception:
             pass
         return w_
@@ -148,10 +150,19 @@ class RecordFrame:
         self.bar = bar
         self._blink()
 
+    def keep_on_top(self):
+        """Push every strip back into the topmost band, in case something covered it."""
+        for w_ in self.windows:
+            try:
+                win.raise_topmost(win.toplevel_hwnd(w_))
+            except Exception:
+                pass
+
     def _blink(self):
         if not self.bar:
             return
         try:
+            self.keep_on_top()
             self.dot.delete("all")
             if self._dot_on:
                 d = int(9 * self.s)

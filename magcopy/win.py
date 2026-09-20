@@ -539,11 +539,30 @@ def make_frameless(root, border_hex, bg_hex, dark=None):
         return None
 
 
+HWND_TOPMOST = -1
+SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE, SWP_SHOWWINDOW = 0x0001, 0x0002, 0x0010, 0x0040
+
+
+def raise_topmost(hwnd):
+    """Re-assert a window's place in the topmost band.
+
+    Setting WS_EX_TOPMOST once is not a promise: another app going topmost, or full screen, can
+    end up over it, and the recording frame is useless the moment something covers it. Cheap
+    enough to simply repeat while a recording runs.
+    """
+    try:
+        u32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW)
+        return True
+    except Exception:
+        return False
+
+
 def move_window(hwnd, x, y):
     u32.SetWindowPos(hwnd, 0, int(x), int(y), 0, 0, 0x0001 | 0x0004 | 0x0010)   # NOSIZE|NOZORDER|NOACTIVATE
 
 
-def set_click_through(hwnd, on=True, alpha=255):
+def set_click_through(hwnd, on=True, alpha=255, keep_layer=False):
     """WS_EX_TRANSPARENT so the recording frame never eats clicks meant for the app underneath.
 
     WS_EX_LAYERED has to come with it - transparency hit-testing is only reliable on a layered
@@ -553,6 +572,14 @@ def set_click_through(hwnd, on=True, alpha=255):
     """
     GWL_EXSTYLE, WS_EX_TRANSPARENT, WS_EX_LAYERED, LWA_ALPHA = -20, 0x00000020, 0x00080000, 0x02
     try:
+        if keep_layer:
+            # The caller already configured this window's transparency (Tk's -transparentcolor
+            # sets LWA_COLORKEY). Setting LWA_ALPHA here would replace that and make the whole
+            # window opaque, so only add the hit-testing flag and leave the layer alone.
+            ex = u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+            u32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE,
+                                  (ex | WS_EX_TRANSPARENT) if on else (ex & ~WS_EX_TRANSPARENT))
+            return True
         ex = u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
         if on:
             ex |= WS_EX_TRANSPARENT | WS_EX_LAYERED
@@ -561,6 +588,35 @@ def set_click_through(hwnd, on=True, alpha=255):
         u32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex)
         if ex & WS_EX_LAYERED:
             u32.SetLayeredWindowAttributes(hwnd, 0, int(max(0, min(255, alpha))), LWA_ALPHA)
+        return True
+    except Exception:
+        return False
+
+
+# ----------------------------------------------------------------------------- window regions
+RGN_DIFF = 4
+
+
+def set_window_hole(hwnd, width, height, hole=None):
+    """Shape a window to everything except `hole` (x, y, w, h), in window-local pixels.
+
+    This is how the region picker shows the selection live and undimmed: rather than painting a
+    lighter rectangle - impossible on a uniformly translucent window - the dim layer simply stops
+    existing where the selection is, so what shows through is the real screen at full brightness.
+    Passing hole=None restores the whole window.
+    """
+    try:
+        g32.CreateRectRgn.restype = w.HRGN
+        g32.CreateRectRgn.argtypes = [ctypes.c_int] * 4
+        g32.CombineRgn.argtypes = [w.HRGN, w.HRGN, w.HRGN, ctypes.c_int]
+        u32.SetWindowRgn.argtypes = [w.HWND, w.HRGN, w.BOOL]
+        full = g32.CreateRectRgn(0, 0, int(width), int(height))
+        if hole and hole[2] > 0 and hole[3] > 0:
+            x, y, hw, hh = (int(v) for v in hole)
+            cut = g32.CreateRectRgn(x, y, x + hw, y + hh)
+            g32.CombineRgn(full, full, cut, RGN_DIFF)
+            g32.DeleteObject(cut)
+        u32.SetWindowRgn(hwnd, full, True)       # the window owns the region now; do not delete it
         return True
     except Exception:
         return False

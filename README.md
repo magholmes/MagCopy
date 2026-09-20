@@ -91,6 +91,14 @@ Everything lives in the window, and in `settings.json` next to the script (or `%
 
 The finished GIF goes on the clipboard as a *file*, so Ctrl+V in Discord attaches it rather than pasting a path.
 
+## Choosing the region
+
+Recording and screenshots pick a region differently, on purpose.
+
+**Recording is live.** Nothing freezes: you are about to capture motion, so the screen keeps moving while you choose, and the selection shows at full brightness while everything around it dims. That is a hole cut out of the dim layer rather than a lighter rectangle painted on it — a uniformly translucent window cannot paint part of itself brighter. It also opens instantly, since there is no frame to capture first.
+
+**Screenshots freeze.** That one is deliberate: a menu or a tooltip stays put while you frame it, and what you framed is exactly what you get.
+
 ## While recording
 
 A viewfinder marks the region for the length of the recording: a soft hairline edge stating where the boundary is, solid brackets at the four corners, and a small bar with the elapsed time and stop/cancel. The weight is in the corners rather than in the line, so the region reads as framed without a red box sitting on top of whatever you are recording.

@@ -194,10 +194,12 @@ class App:
         self.busy = True
         was_visible = self._hide_for_capture()
         try:
+            # live=True: a recording is about to capture motion, so the screen must keep moving
+            # while the region is chosen. Screenshots still freeze, which is right for a still.
             sel = overlay.RegionSelector(
                 self.root, self.theme, self.fonts,
                 "drag to record   ·   %s or esc stops   ·   up to %ds"
-                % (self.settings["hotkey_gif"], self.settings["max_seconds"]))
+                % (self.settings["hotkey_gif"], self.settings["max_seconds"]), live=True)
             rect = sel.run()
             if not rect:
                 self.busy = False
