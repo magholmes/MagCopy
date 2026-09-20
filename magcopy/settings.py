@@ -196,8 +196,19 @@ def save_dir(s):
     return d
 
 
-def stamped_name(prefix, ext):
-    return "%s-%s.%s" % (prefix, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), ext)
+def capture_path(directory, ext):
+    """A short, date-named file in `directory`: 2026-09-20.gif, then -2, -3 and so on.
+
+    The name people actually read is the date; a full timestamp made every capture a wall of
+    digits that all looked alike. The counter only appears when it has to.
+    """
+    base = datetime.date.today().isoformat()
+    path = os.path.join(directory, "%s.%s" % (base, ext))
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(directory, "%s-%d.%s" % (base, n, ext))
+        n += 1
+    return path
 
 
 # ----------------------------------------------------------------------------- run at startup

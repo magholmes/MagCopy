@@ -100,8 +100,11 @@ class RegionSelector:
         self.top.overrideredirect(True)
         self.top.geometry("%dx%d+%d+%d" % (vw, vh, vx, vy))
         self.top.attributes("-topmost", True)
-        self.top.configure(bg="#000000", cursor="crosshair")
-        self.cv = tk.Canvas(self.top, width=vw, height=vh, bd=0, highlightthickness=0, bg="#05060A")
+        self.top.configure(bg=self.c["shade"], cursor="crosshair")
+        # "shade" is the palette's own darkening colour - the deep end of a dark ladder, the
+        # ink end of a light one - so the dim belongs to the theme rather than being flat black
+        self.cv = tk.Canvas(self.top, width=vw, height=vh, bd=0, highlightthickness=0,
+                            bg=self.c["shade"])
         self.cv.pack(fill="both", expand=True)
 
         if self.live:
@@ -114,7 +117,7 @@ class RegionSelector:
             self.bright = Image.frombuffer("RGB", (vw, vh), bgra.tobytes(), "raw", "BGRX", 0, 1)
             self._dim_photo = ImageTk.PhotoImage(self.bright.point(_lut(DIM)))
             self.cv.create_image(0, 0, image=self._dim_photo, anchor="nw")
-            self.sel = tk.Canvas(self.top, bd=0, highlightthickness=0, bg="#000000")
+            self.sel = tk.Canvas(self.top, bd=0, highlightthickness=0, bg=self.c["shade"])
             self._sel_photo = None
             draw_on = self.cv
 

@@ -30,7 +30,7 @@ from .optimize import gif_info
 from .recorder import RecordFrame, Recorder
 from .settings import (APP_NAME, APP_VERSION, ASPECT_RATIOS, DEFAULTS, RES_DIR, APP_DIR, SETTINGS_DIR,
                        get_autostart, is_first_run, load, log_exc, save, save_dir, set_autostart,
-                       stamped_name)
+                       capture_path)
 from .theme import (Button, DotToggle, Fonts, Hairline, HotkeyField, IconButton, Label, Panel,
                     Pills, THEME_ORDER, Theme, TextLink, register_fonts)
 from .tray import Tray
@@ -183,7 +183,7 @@ class App:
             ok = win.set_clipboard_image(bgra)
             note = "%d × %d copied" % (wd, ht)
             if self.settings["save_screenshots"]:
-                path = os.path.join(save_dir(self.settings), stamped_name("shot", "png"))
+                path = capture_path(save_dir(self.settings), "png")
                 crop.save(path, "PNG")
                 self._remember(path, "%d × %d" % (wd, ht), os.path.getsize(path))
                 note += " · saved"

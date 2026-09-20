@@ -40,8 +40,10 @@ def editor(src=(1000, 600), box=(0, 0, 1000, 600)):
     ed._crop_drag = None
     ed.frames = ["x"]
     ed.canvas = FakeCanvas()
-    ed.theme = type("T", (), {"c": {"focus": "#5E6DEE", "mute": "#888888", "bg": "#000000",
-                                    "ink": "#FFFFFF"}})()
+    # the real palette, not a handful of keys: a stub that lists colours by hand goes stale the
+    # moment a surface starts using another one, and fails as a missing key rather than a bug
+    from magcopy.theme import colors_for
+    ed.theme = type("T", (), {"c": colors_for("dusk")})()
     ed.fonts = type("F", (), {"mono8": ("Consolas", 8)})()
     ed._update_estimate = lambda: None
     ed._sync_crop_buttons = lambda: None

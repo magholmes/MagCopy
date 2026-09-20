@@ -29,7 +29,7 @@ from PIL import Image, ImageTk
 from . import win
 from .binaries import TOOLS, run
 from .optimize import GifOptimizer, Cancelled, fps_ladder, gif_info, probe
-from .settings import log_exc, save_dir, stamped_name
+from .settings import log_exc, save_dir, capture_path
 from .theme import (Button, DotToggle, Hairline, Label, Panel, Pills, ProgressLine,
                     TextLink, IconButton, round_rect)
 
@@ -166,7 +166,8 @@ class Timeline(tk.Canvas):
                              x + self.HANDLE * self.s / 2, (top + bot) / 2 + self.HANDLE * self.s / 2,
                              fill=c["ink"], outline=c["bg"])
         px = self._x(self.play)
-        self.create_line(px, top - 3 * self.s, px, bot + 3 * self.s, fill=c["error"], width=1)
+        # the accent, not the error colour: red is reserved for "this is recording"
+        self.create_line(px, top - 3 * self.s, px, bot + 3 * self.s, fill=c["focus"], width=1)
         self.create_text(a, ht - int(8 * self.s), text="0.0s", anchor="w",
                          font=self.fonts.mono8, fill=c["mute2"])
         self.create_text(b, ht - int(8 * self.s), text="%.1fs" % self.duration, anchor="e",
@@ -495,9 +496,9 @@ class GifEditor:
         for a, b, cc, d in ((ox, oy, ox + iw, y0), (ox, y1, ox + iw, oy + ih),
                             (ox, y0, x0, y1), (x1, y0, ox + iw, y1)):
             if cc > a and d > b:
-                # black, not the theme background: over dark footage a bg-coloured stipple is
-                # almost invisible, and the point is to show what will be thrown away
-                self.canvas.create_rectangle(a, b, cc, d, fill="#000000", outline="",
+                # the palette's darkening colour, not its background: over dark footage a
+                # bg-coloured stipple is almost invisible, and the point is to show what goes
+                self.canvas.create_rectangle(a, b, cc, d, fill=c["shade"], outline="",
                                              stipple="gray75", tags="crop")
         accent = c["mute"] if self.crop_locked else c["focus"]
         self.canvas.create_rectangle(x0, y0, x1, y1, outline=accent, width=1, tags="crop")
@@ -570,7 +571,7 @@ class GifEditor:
         self.btn_play.set_text("play")
         self.prep.pack(fill="x", padx=self.PADX, pady=(0, int(4 * self.s)))
         self.prep.set(0.05)
-        out = os.path.join(save_dir(self.settings), stamped_name("magcopy", "gif"))
+        out = capture_path(save_dir(self.settings), "gif")
         threading.Thread(target=self._save_worker, args=(out,), name="magcopy-save",
                          daemon=True).start()
 

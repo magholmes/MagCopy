@@ -1,9 +1,9 @@
 """Look and feel: palettes, fonts and the widget set.
 
-One colour is deliberately not from the palette: `record`, the frame drawn around a region while
-it is being recorded. Every other colour is chosen to sit back; that one has to be legible against
-whatever happens to be on screen, so it is a red in every theme - warmed off pure signal-red, and
-carried mostly by the corner brackets rather than by weight.
+One colour is deliberately the same in every theme: `record`, the frame drawn around a region
+while it is being recorded. Red means recording, and a red that shifted with the palette would
+stop meaning it. Everything else - the selection accent, the crop handles, the playhead, the dim
+behind a selection - is drawn from the active palette, so picking a theme changes them all.
 
 The design language is the one from Opmize - Are.na's colour ladders, hairlines, Geist and
 Geist Mono, lowercase mono labels, pill controls - with the palette made switchable so the
@@ -27,7 +27,7 @@ def _dark(ladder, focus, error, ok, record="#F2564B"):
                 record=record, shade=g[0], sel_fill=g[1])
 
 
-def _light(ladder, focus, error, ok, record="#E0453B"):
+def _light(ladder, focus, error, ok, record="#F2564B"):
     """Same ladder read the other way: 0 is the paper, 7 the ink."""
     g = ladder
     return dict(bg=g[0], bg2=g[1], hair=g[2], hair_soft=g[1], ink=g[7], ink2=g[6],
