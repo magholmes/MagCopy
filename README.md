@@ -3,22 +3,37 @@
 Two shortcuts, no ceremony.
 
 - **Ctrl+Shift+A** — drag a rectangle over anything. The screenshot goes straight to the clipboard. No preview, no save dialog, no window. Paste it wherever you were going.
-- **Ctrl+Shift+S** — drag a rectangle and record it, up to 20 seconds. Trim it, then save. The GIF comes out as large and sharp as will fit under Discord's limit.
+- **Ctrl+Shift+S** — drag a rectangle and record it. Trim it, crop it, then save. The GIF comes out as large and sharp as will fit under Discord's limit.
 
-Both shortcuts are rebindable. Windows only.
+Windows only.
 
 <p>
   <a href="https://github.com/magholmes/MagCopy/releases/latest/download/MagCopy.exe">
-    <img alt="Download MagCopy for Windows"
+    <img alt="Download the latest MagCopy.exe"
          src="https://img.shields.io/badge/download-MagCopy.exe-5E6DEE?style=for-the-badge&labelColor=16171E&color=5E6DEE&logo=windows&logoColor=white"></a>
+  &nbsp;
+  <a href="https://github.com/magholmes/MagCopy/releases/latest">
+    <img alt="Latest version"
+         src="https://img.shields.io/github/v/release/magholmes/MagCopy?style=for-the-badge&labelColor=16171E&color=342E38&label=version"></a>
 </p>
 
-One file, nothing to install. Double-click it and the shortcuts start working; it lives in the
-notification area. The first run may show SmartScreen's "Windows protected your PC" because the
-build is unsigned — **More info → Run anyway**.
+That link always serves the newest build. One file, nothing to install: double-click it and the
+shortcuts start working. It lives in the notification area. The first run may show SmartScreen's
+"Windows protected your PC" because the build is unsigned — **More info → Run anyway**.
 
 There is no macOS build, and there will not be one: the capture, clipboard, hotkeys and window
 are all Win32.
+
+### The shortcuts are yours
+
+Those two are only the defaults. **Click either shortcut in the window and press whatever you want** —
+any combination of Ctrl, Shift, Alt and Win with a key, `Ctrl+Space` or `Alt+F9` or `Win+Shift+3`,
+whatever is free on your machine. It takes effect immediately and is remembered.
+
+The one rule is that a shortcut needs at least one modifier, because a bare key would swallow that
+key everywhere else. If another application already owns the combination you pick, MagCopy says so,
+keeps the one that was working, and tells you from the tray — a shortcut that silently does nothing
+is the worst way for this to fail.
 
 ![MagCopy](docs/window.png)
 
@@ -57,7 +72,7 @@ This is the part with opinions in it.
 
 **Fitting is not optional.** If nothing on the ladder fits, it keeps shrinking until something does. A GIF that Discord refuses is not a result.
 
-On a 20-second 1280×720 screen recording this lands at full resolution, 12.5 fps, 9.4 MB, in about a minute and a half. Short clips take a few seconds.
+On a 20-second 1280×720 screen recording this lands at full resolution, 12.5 fps and about 9.4 MB, taking a minute or two depending on how much of the picture moves. Short clips take a few seconds.
 
 ### Why not just send an MP4?
 
@@ -85,7 +100,7 @@ Everything lives in the window, and in `settings.json` next to the script (or `%
 | **window size** | small → x-large |
 | **recording** | 50 / 25 / 20 fps (50 by default), cursor on or off, and whether to draw the frame |
 | **shape** | free, or hold every selection to 1:1, 4:5, 5:4, 4:3 or 16:9 — shift overrides it mid-drag |
-| **max length** | 10 / 20 / 30 / 60 seconds |
+| **max length** | 10 / 20 / 30 / 60 seconds (20 by default) |
 | **size limit** | 8 / 10 / 25 / 50 MB — Discord gives 10 free, more with Nitro |
 | **after** | copy the GIF to the clipboard as a file, show it in its folder (on by default), also save screenshots |
 | **startup** | start with Windows — on by default, launching straight to the tray |
@@ -148,10 +163,12 @@ MagCopy is MIT (see `LICENSE`). The tools it runs are separate programs, invoked
 | [gifsicle](https://www.lcdf.org/gifsicle/) | GPL-2.0 |
 | [Geist / Geist Mono](https://vercel.com/font) | SIL Open Font Licence — see `fonts/LICENSE-Geist-OFL.txt` |
 
-The icon is built from `icon_source.png`, a cut-out the author owns:
-`python tools/cutout.py photo.jpg icon_source.png` then `python tools/make_icon.py icon_source.png`.
+The three encoders are not bundled in this repository; `tools/fetch_binaries.py` downloads them
+from the projects' own releases and checks each one runs.
 
-They are not bundled in this repository; `tools/fetch_binaries.py` downloads them.
+The icon is built from `icon_source.png`, a cut-out the author owns:
+`python tools/cutout.py photo.jpg icon_source.png`, then
+`python tools/make_icon.py icon_source.png`.
 
 ## Checking an install
 
@@ -166,7 +183,7 @@ are all working, and leaves the same report in `%APPDATA%\MagCopy\selftest.txt`.
 
 - Windows only. Capture, clipboard, hotkeys and the frameless window are all Win32.
 - GDI capture cannot see fullscreen-exclusive games or some GPU-composited surfaces; those come out black.
-- A shortcut already owned by another application will fail to register. MagCopy says so and keeps the previous one.
+- A shortcut already owned by another application cannot be registered. MagCopy says so in the window and from the tray, and keeps the one that was working. Pick another.
 - Long recordings at high resolution take a while to encode. The status line tells you what it is trying.
 
 ## Tests
@@ -175,8 +192,13 @@ are all working, and leaves the same report in `%APPDATA%\MagCopy\selftest.txt`.
 python tools/run_all_tests.py
 ```
 
-Ten smoke tests, about two minutes. They drive the real region selector, measure recording
-pace against the wall clock, walk every theme and window size, run a real recording through the
-editor and out the other side as a GIF, sample the screen to confirm the recording frame is
-actually drawn, and check the emitted GIF by parsing its block structure rather than trusting the
-encoder.
+Nineteen smoke tests, two to three minutes. They drive the real region selector; measure recording
+pace against the wall clock; check a locked aspect ratio survives every drag direction and the edge
+of the desktop; walk every theme, window size and palette colour; size the editor against each
+monitor at each UI scale; exercise the crop handles; run a real recording through the editor and out
+the other side as a GIF; and read the emitted GIF back by parsing its block structure rather than
+trusting the encoder.
+
+Several sample the screen itself rather than the code's own idea of what it drew — that the
+recording frame is really on screen, that the selection accent really is the theme's colour — which
+is how two bugs were found where Windows reported a window as mapped while compositing nothing.
