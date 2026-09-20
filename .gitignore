@@ -1,0 +1,15 @@
+# downloaded encoders - fetch with tools/fetch_binaries.py
+bin/
+# local state
+settings.json
+errors.log
+crash.log
+# test output (screenshots of a real desktop; never commit these)
+tools/_shots/
+# build
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+.venv/
