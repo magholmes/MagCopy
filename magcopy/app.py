@@ -383,6 +383,12 @@ class App:
             if os.name == "nt" and os.path.exists(path):
                 import subprocess
                 from .binaries import CREATE_NO_WINDOW
+                # Without this the folder does open, but behind whatever of ours has focus, where
+                # it only blinks in the taskbar - which reads as nothing having happened at all.
+                win.allow_foreground()
+                # The comma form has to stay split across two arguments. Joining it into one
+                # token looks tidier and is wrong: Windows then quotes the whole thing and
+                # Explorer ignores the switch, opening Documents instead of the file.
                 subprocess.Popen(["explorer", "/select,", os.path.normpath(path)],
                                  creationflags=CREATE_NO_WINDOW)
                 return

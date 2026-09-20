@@ -236,6 +236,8 @@ class GifEditor:
             except Exception:
                 pass
         self._cancel_save = True
+        self.saving = False
+        self._stop_save_clock()
         try:
             if self.top:
                 self.top.destroy()
@@ -561,23 +563,38 @@ class GifEditor:
 
     # ---- saving
     def save(self):
+        """Start the save, and say so on screen before anything slow begins.
+
+        Encoding a full-length recording takes a minute or more, and every second of that used to
+        look identical to the second before the button was pressed: the same status text, the same
+        picture. The click has to produce an answer immediately or the program reads as hung.
+        """
         if self.saving or not self.frames:
             return
         self.saving = True
         self._cancel_save = False
+        self._save_started = time.monotonic()
+        self._save_stage = "getting the recording ready"
+        self._prep_target = 0.03
         self.btn_save.set_enabled(False)
+        self.btn_save.set_text("saving…")
         self.btn_play.set_enabled(False)
         self.playing = False
         self.btn_play.set_text("play")
-        self.prep.pack(fill="x", padx=self.PADX, pady=(0, int(4 * self.s)))
-        self.prep.set(0.05)
+        # before=self.status: a plain pack() after a pack_forget() appends to the END of the
+        # packing order, which drops the bar below the save button into the window's bottom
+        # margin. It is genuinely on screen there, detached from everything and nowhere near
+        # where the eye is - which is indistinguishable from it not being there at all.
+        self.prep.pack(fill="x", padx=self.PADX, pady=(0, int(4 * self.s)), before=self.status)
+        self.prep.set(0.03)
+        self._save_tick()
         out = capture_path(save_dir(self.settings), "gif")
         threading.Thread(target=self._save_worker, args=(out,), name="magcopy-save",
                          daemon=True).start()
 
     def _save_worker(self, out):
         def progress(text, frac=None):
-            self.app.post(lambda: self._progress(text))
+            self.app.post(lambda: self._progress(text, frac))
 
         opt = GifOptimizer(
             self.master, out,
@@ -597,14 +614,71 @@ class GifEditor:
         finally:
             opt.cleanup()
 
-    def _progress(self, text):
+    def _progress(self, text, frac=None):
+        # The optimiser writes its own trailing ellipses; the clock appends one of its own.
+        self._save_stage = (text or "").rstrip(" .…") or "working"
+        if frac is not None:
+            self._ease_prep(frac)
+        self._save_tick(again=False)
+
+    def _save_tick(self, again=True):
+        """Stage text plus a second counter, refreshed once a second.
+
+        The optimiser can be silent for half a minute while ffmpeg runs, and a status line that
+        has not moved in that long is indistinguishable from a frozen program. A number that
+        keeps counting is the cheapest possible proof that something is still happening.
+        """
+        if not self.saving:
+            return
         try:
-            self.status.configure(text=text)
+            secs = int(time.monotonic() - self._save_started)
+            self.status.configure(text="%s…  %ds" % (self._save_stage, secs))
         except Exception:
-            pass
+            return
+        if again:
+            self._save_job = self.top.after(1000, self._save_tick)
+
+    def _ease_prep(self, target):
+        """Walk the bar to a new position rather than letting it jump.
+
+        The stages are coarse and far apart. Snapping between them looks like a rendering glitch,
+        and three sudden jumps over a minute do not read as progress; a bar that slides does.
+        The fractions are the optimiser's own estimate of where it is, not a measurement.
+        """
+        self._prep_target = min(1.0, max(getattr(self, "_prep_target", 0.0) or 0.0, target))
+        if getattr(self, "_prep_job", None) is None:
+            self._prep_step()
+
+    def _prep_step(self):
+        if not self.saving and (self.prep.frac or 0.0) >= self._prep_target:
+            self._prep_job = None
+            return
+        cur = self.prep.frac or 0.0
+        gap = self._prep_target - cur
+        if gap < 0.004:
+            self.prep.set(self._prep_target)
+            self._prep_job = None
+            return
+        self.prep.set(cur + gap * 0.18)
+        try:
+            self._prep_job = self.top.after(30, self._prep_step)
+        except Exception:
+            self._prep_job = None
+
+    def _stop_save_clock(self):
+        for attr in ("_save_job", "_prep_job"):
+            job = getattr(self, attr, None)
+            if job:
+                try:
+                    self.top.after_cancel(job)
+                except Exception:
+                    pass
+            setattr(self, attr, None)
 
     def _save_failed(self, msg):
         self.saving = False
+        self._stop_save_clock()
+        self.btn_save.set_text("save gif")
         self.btn_save.set_enabled(True)
         self.btn_play.set_enabled(True)
         self.prep.set(None)
@@ -618,7 +692,9 @@ class GifEditor:
         until it is asked for.
         """
         self.saving = False
+        self._stop_save_clock()
         self.result = res
+        self.btn_save.set_text("save gif")
         self.prep.set(1.0)
         note = "%d x %d  ·  %.4g fps  ·  %d frames  ·  %.2f MB" % (
             res.width, res.height, res.fps, res.frames, res.bytes / 1e6)
@@ -628,9 +704,13 @@ class GifEditor:
         self.app.gif_saved(res)
         self.btn_play.set_enabled(True)
         self.btn_save.set_enabled(True)
-        if self.settings.get("open_folder_after_gif", True):
-            self.app.reveal(res.path)
+        # The panel goes up first and Explorer second. The other way round the panel lifts itself
+        # over the folder that was just opened, so the file it was meant to show ends up hidden
+        # behind the very window announcing it - and the only way to see it is the link that says
+        # "show the file", which is precisely the click this is supposed to save.
         self._show_done(res, note)
+        if self.settings.get("open_folder_after_gif", True):
+            self.top.after(60, lambda: self.app.reveal(res.path))
 
     def _show_done(self, res, note):
         """A small themed panel over the editor: done, keep editing, or show the file again."""

@@ -75,6 +75,8 @@ def _declare():
     u32.GetWindowRect.argtypes = [w.HWND, ctypes.c_void_p]
     u32.SetLayeredWindowAttributes.argtypes = [w.HWND, w.COLORREF, ctypes.c_ubyte, w.DWORD]
     u32.SetLayeredWindowAttributes.restype = w.BOOL
+    u32.AllowSetForegroundWindow.argtypes = [w.DWORD]
+    u32.AllowSetForegroundWindow.restype = w.BOOL
     u32.RegisterHotKey.argtypes = [w.HWND, ctypes.c_int, w.UINT, w.UINT]
     u32.UnregisterHotKey.argtypes = [w.HWND, ctypes.c_int]
     u32.GetMessageW.argtypes = [ctypes.c_void_p, w.HWND, w.UINT, w.UINT]
@@ -621,6 +623,21 @@ def set_overlay_styles(hwnd):
         ex = u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
         u32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
         return True
+    except Exception:
+        return False
+
+
+def allow_foreground():
+    """Let the next process we start put itself in front of us.
+
+    Windows will not normally let a background process steal the foreground, which is usually a
+    kindness: it is what stops installers jumping in front of what you are typing. It also means
+    that launching Explorer to show a freshly saved file lands it *behind* our own window, where
+    it only blinks in the taskbar. ASFW_ANY hands our own foreground rights to whatever starts
+    next, which is exactly the case the call was designed for.
+    """
+    try:
+        return bool(u32.AllowSetForegroundWindow(w.DWORD(0xFFFFFFFF)))      # ASFW_ANY
     except Exception:
         return False
 

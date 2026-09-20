@@ -211,6 +211,7 @@ class GifOptimizer:
         self.max_width = max_width
         self.crop = crop                  # (x, y, w, h) in source pixels, applied before scaling
         self.on_progress = on_progress or (lambda *a, **k: None)
+        self._encode_frac = None            # where the bar sits while the current rung encodes
         self.should_cancel = should_cancel or (lambda: False)
         self.workdir = workdir or tempfile.mkdtemp(prefix="magcopy-gif-")
         self._own_workdir = workdir is None
@@ -221,6 +222,11 @@ class GifOptimizer:
     def cleanup(self):
         if self._own_workdir:
             shutil.rmtree(self.workdir, ignore_errors=True)
+
+    # Roughly where each stage sits in a whole save. These are an honest guess and nothing more:
+    # how many rungs get walked depends on the recording, so the bar is a sense of movement rather
+    # than a measurement. What must be true is that it only ever goes forwards.
+    P_PROBE, P_SCOUT, P_SCOUT_DONE, P_RUNGS, P_RUNG_SPAN, P_FORCE = 0.05, 0.10, 0.24, 0.30, 0.60, 0.90
 
     def _say(self, text, frac=None):
         try:
@@ -292,7 +298,8 @@ class GifOptimizer:
                     os.remove(tmp)
         size = os.path.getsize(out)
         self.attempts.append((width, fps, quality, size))
-        self._say("%d px · %.4g fps · q%d → %.2f MB" % (width, fps, quality, size / 1e6))
+        self._say("%d px · %.4g fps · q%d → %.2f MB" % (width, fps, quality, size / 1e6),
+                  self._encode_frac)
         return size
 
     # ---- cheap estimate
@@ -313,7 +320,7 @@ class GifOptimizer:
                            workdir=os.path.join(self.workdir, "scoutwork"))
         os.makedirs(sub.workdir, exist_ok=True)
         try:
-            self._say("sizing up the recording…")
+            self._say("sizing up the recording…", self.P_SCOUT)
             size = sub._encode(width, fps, QUALITY_START, os.path.join(sub.workdir, "s.gif"))
         except Cancelled:
             raise
@@ -371,6 +378,7 @@ class GifOptimizer:
         if not wd0 or not ht0:
             raise RuntimeError("could not read the recording")
         src_fps = src_fps or 25.0
+        self._say("working out the best size", self.P_PROBE)
         end = self.end if self.end is not None else dur
         span = max(0.05, (end - self.start) / self.speed)
         if self.crop:                      # everything downstream sizes against what is kept
@@ -400,7 +408,7 @@ class GifOptimizer:
         top_w, top_f = rungs[0][0], rungs[0][1]
         predicted = self._scout(top_w, top_f, span)
         if predicted:
-            self._say("estimated %.1f MB at full size" % (predicted / 1e6))
+            self._say("estimated %.1f MB at full size" % (predicted / 1e6), self.P_SCOUT_DONE)
             ref = (top_w, top_f, predicted)
         for wpx, f, s in rungs:
             if tried >= MAX_RUNGS:
@@ -411,7 +419,9 @@ class GifOptimizer:
                 if pred > self.budget * 1.35:                   # out of reach; skip the extraction
                     continue
             tried += 1
-            self._say("trying %d px at %.4g fps…" % (wpx, f))
+            # each rung claims its share of the band, so walking them always moves forward
+            self._encode_frac = self.P_RUNGS + self.P_RUNG_SPAN * (tried - 1) / float(MAX_RUNGS)
+            self._say("trying %d px at %.4g fps…" % (wpx, f), self._encode_frac)
             try:
                 q, size = self._rung(wpx, f, keep)
             except Cancelled:
@@ -448,7 +458,8 @@ class GifOptimizer:
         scratch = os.path.join(self.workdir, "try.gif")
         for _ in range(7):
             self._check()
-            self._say("shrinking to fit: %d px at %.4g fps…" % (wpx, f))
+            self._encode_frac = self.P_FORCE
+            self._say("shrinking to fit: %d px at %.4g fps…" % (wpx, f), self.P_FORCE)
             try:
                 size = self._encode(wpx, f, QUALITY_MIN, scratch)
             except Cancelled:

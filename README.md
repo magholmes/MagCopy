@@ -172,6 +172,8 @@ Every piece sits *outside* the captured rectangle and is click-through, so none 
 
 The editor opens on its own after a recording, taking at most 80% of the monitor the clip was recorded on — and never upscaling past the recording's own size, since blowing a small capture up only makes it soft. It measures its own controls while still hidden to work out how much room the picture can have, and is mapped once at that size, so nothing is ever seen to resize. Scrub the filmstrip, drag the handles to trim, set a speed, save. Space plays, Ctrl+S saves, Escape discards.
 
+Saving a full-length recording takes a minute or more, so it says so while it works: the button reads "saving", a bar tracks which size and frame rate the optimiser is trying, and a counter ticks the seconds off beside it. The encoder can be quiet for half a minute at a time while ffmpeg runs, and a status line that has not moved in that long is indistinguishable from a frozen program. When it finishes, the folder opens with the new file selected — you do not have to go looking for it.
+
 Captures are named for the day — `2026-09-20.gif`, then `-2`, `-3` — because the name you read should be the date, not a wall of digits that all look alike.
 
 When the GIF is written the file is shown in its folder — selected, not just the folder opened — and the editor asks **all done?** rather than closing itself. `done` closes it, `keep editing` leaves everything as it was so you can adjust the trim or crop and save again. A GIF is often nearly right, and finding out means looking at the file, so nothing is thrown away until it is asked for.

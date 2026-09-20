@@ -3,7 +3,7 @@ import os, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = ["smoke_gifinfo.py", "smoke_defaults.py", "smoke_frame.py", "smoke_overlay.py",
          "smoke_frame_live.py", "smoke_live_overlay.py", "smoke_drag.py", "smoke_escape.py", "smoke_flow.py",
-         "smoke_pacing.py", "smoke_instance.py", "smoke_theme_colours.py", "smoke_ratio.py", "smoke_crop.py", "smoke_crop_handles.py", "smoke_editor_size.py", "smoke_done.py", "smoke_ui.py", "smoke_editor.py",
+         "smoke_pacing.py", "smoke_instance.py", "smoke_theme_colours.py", "smoke_ratio.py", "smoke_crop.py", "smoke_crop_handles.py", "smoke_editor_size.py", "smoke_done.py", "smoke_saving.py", "smoke_ui.py", "smoke_editor.py",
          "smoke_pipeline.py", "smoke_realistic.py"]
 
 # constructing App() on a machine with no settings file would register "start with Windows";
