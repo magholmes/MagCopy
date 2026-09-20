@@ -64,6 +64,7 @@ class App:
         self.busy = False                     # a capture flow is in progress
         self.recorder = None
         self.record_frame = None
+        self.record_esc = None            # global Escape, alive only while recording
         self.editor = None
         self.hwnd = None
         self._toast = None
@@ -235,6 +236,13 @@ class App:
             on_tick=lambda t: self.post(lambda: self._record_tick(t)),
             on_done=lambda rec: self.post(lambda: self._record_done(rec)))
         self.recorder.start()
+        # Escape has to be a real global hotkey: the window with focus is the one being recorded,
+        # so nothing of ours is in a position to see the key. Held only for the recording.
+        self.record_esc = win.TransientHotkey("esc", lambda: self.post(self.stop_recording))
+        try:
+            self.record_esc.start()
+        except Exception:
+            log_exc("escape hotkey")
 
     def _record_tick(self, seconds):
         if self.record_frame:
@@ -248,7 +256,16 @@ class App:
         if self.recorder:
             self.recorder.cancel()
 
+    def _release_record_esc(self):
+        if self.record_esc:
+            try:
+                self.record_esc.stop()
+            except Exception:
+                pass
+            self.record_esc = None
+
     def _record_done(self, rec):
+        self._release_record_esc()
         if self.record_frame:
             self.record_frame.destroy()
             self.record_frame = None
@@ -324,6 +341,7 @@ class App:
 
     def quit(self):
         self._alive = False
+        self._release_record_esc()        # quitting mid-recording must not leave Escape captured
         try:
             self.hotkeys.stop()
         except Exception:

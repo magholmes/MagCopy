@@ -110,7 +110,11 @@ class RegionSelector:
         if self.live:
             self.top.attributes("-alpha", LIVE_DIM)
             self._build_chrome_layer()
-            draw_on = self.chrome_cv
+            # If the chrome layer could not be made click-through, it must not exist. It sits on
+            # top of the layer that takes the mouse, and the grab means events it does receive are
+            # discarded rather than handled - so anything drawn on it would swallow presses
+            # outright. Drawing on the dim layer instead costs a little contrast and always works.
+            draw_on = self.chrome_cv if self.chrome is not None else self.cv
         else:
             bgra = win.grab_once(vx, vy, vw, vh, cursor=False)
             # PIL reads the BGRA buffer directly in BGRX raw mode, skipping a full-screen swap
@@ -133,6 +137,10 @@ class RegionSelector:
         except Exception:
             self.top.grab_set()
 
+        # Only the dim layer takes the mouse. Binding the chrome layer as a safety net does not
+        # work and is worth not trying again: the grab below discards events aimed at windows
+        # outside it, and the chrome layer is a sibling, not a child. Its click-through style is
+        # what keeps presses landing on the dim layer, and it is destroyed above if that failed.
         self.cv.bind("<Motion>", self._motion)
         self.cv.bind("<ButtonPress-1>", self._press)
         self.cv.bind("<B1-Motion>", self._motion)
@@ -169,12 +177,20 @@ class RegionSelector:
                                    highlightthickness=0, bg=KEY_COLOR)
         self.chrome_cv.pack(fill="both", expand=True)
         self.chrome.deiconify()
+        self.chrome.update_idletasks()        # the wrapper window must exist before it is styled
         try:                                  # keep_layer: do not clobber the colour key with alpha
             hwnd = win.toplevel_hwnd(self.chrome)
             win.set_overlay_styles(hwnd)
-            win.set_click_through(hwnd, True, keep_layer=True)
+            self._chrome_passthrough = bool(win.set_click_through(hwnd, True, keep_layer=True))
         except Exception:
-            pass
+            self._chrome_passthrough = False
+        if not self._chrome_passthrough:
+            try:
+                self.chrome.destroy()
+            except Exception:
+                pass
+            self.chrome = None
+            self.chrome_cv = None
 
     def _destroy(self):
         try:

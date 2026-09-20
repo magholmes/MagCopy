@@ -30,9 +30,15 @@ python -m PyInstaller --noconfirm --clean $mode --windowed `
   "$root\magcopy.pyw"
 
 if ($Folder) {
+  # The installer and the read-me ship inside the folder, so whoever extracts the zip sees the
+  # thing to double-click next to the thing they downloaded.
+  Copy-Item "$root\packaging\*" "$root\dist\MagCopy\" -Force
+
   $zip = "$root\dist\MagCopy-windows.zip"
   Remove-Item $zip -EA SilentlyContinue
-  Compress-Archive -Path "$root\dist\MagCopy\*" -DestinationPath $zip -CompressionLevel Optimal
+  # The folder itself, not its contents: extracting gives one tidy MagCopy\ folder rather than
+  # spraying an exe, a _internal directory and three loose files into someone's Downloads.
+  Compress-Archive -Path "$root\dist\MagCopy" -DestinationPath $zip -CompressionLevel Optimal
   Write-Host "`nBuilt dist\MagCopy\ and dist\MagCopy-windows.zip" -ForegroundColor Green
 } else {
   Write-Host "`nBuilt dist\MagCopy.exe" -ForegroundColor Green

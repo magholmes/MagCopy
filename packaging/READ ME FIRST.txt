@@ -1,0 +1,45 @@
+MagCopy
+=======
+
+1. Extract this folder somewhere (right-click the zip -> Extract All).
+2. Double-click "Install MagCopy.bat".
+
+That is the whole thing. It copies MagCopy into your own user folder, adds a Start menu
+and desktop shortcut, and starts it. No administrator rights, nothing written outside
+your account, no setup questions.
+
+If you would rather not install anything, just double-click MagCopy.exe where it is.
+It works exactly the same; you only lose the shortcuts.
+
+
+Using it
+--------
+
+  Ctrl+Shift+A    Drag a rectangle over anything. The screenshot goes straight to your
+                  clipboard - no preview, no save dialog. Paste it wherever you were going.
+
+  Ctrl+Shift+S    Drag a rectangle and record it. Escape stops the recording and opens the
+                  editor, where you can trim and crop before saving. The GIF comes out as
+                  large and sharp as will fit under Discord's 10 MB limit.
+
+Both shortcuts are only defaults. Click either one in the MagCopy window and press whatever
+combination you want. MagCopy itself lives in the notification area, by the clock.
+
+
+If Windows or Chrome complains
+------------------------------
+
+The build is not code-signed, so Windows has no reputation for it and may show
+"Windows protected your PC" - choose More info, then Run anyway.
+
+The source is at https://github.com/magholmes/MagCopy if you would rather read it and
+build it yourself.
+
+
+Removing it
+-----------
+
+Run "Uninstall MagCopy.bat" from the installed folder:
+  %LOCALAPPDATA%\Programs\MagCopy
+
+Your saved screenshots and GIFs are never touched.

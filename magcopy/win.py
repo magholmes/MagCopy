@@ -474,6 +474,68 @@ class HotkeyManager:
             u32.UnregisterHotKey(None, hk_id)
 
 
+class TransientHotkey:
+    """One global hotkey, held only while something is happening, on a thread of its own.
+
+    This is deliberately not part of HotkeyManager. That one owns the user's shortcuts and
+    re-registers the whole set whenever it changes; borrowing it for a key that lives for a few
+    seconds would mean tearing down working shortcuts and hoping Windows gives them back.
+
+    Escape is the case this exists for. While a recording runs the foreground window belongs to
+    whatever is being recorded, so a Tk binding never sees the key - it has to be a real global
+    hotkey. That does mean Escape is taken from every other application for the length of the
+    recording, which is why it is released the moment the recording ends.
+    """
+
+    def __init__(self, combo, callback):
+        self.combo, self.callback = combo, callback
+        self._thread = None
+        self._tid = None
+        self._stop = threading.Event()
+        self.ok = False
+
+    def start(self):
+        parsed = parse_hotkey(self.combo)
+        if not parsed:
+            return False
+        ready = threading.Event()
+        self._thread = threading.Thread(target=self._run, args=(parsed, ready),
+                                        name="magcopy-transient-hotkey", daemon=True)
+        self._thread.start()
+        ready.wait(2)
+        return self.ok
+
+    def stop(self):
+        self._stop.set()
+        if self._tid:
+            u32.PostThreadMessageW(self._tid, WM_NULL, 0, 0)
+        if self._thread:
+            self._thread.join(2)
+        self._thread = None
+
+    def _run(self, parsed, ready):
+        mods, vk = parsed
+        self._tid = k32.GetCurrentThreadId()
+        msg = w.MSG()
+        u32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)       # force this thread to own a queue
+        self.ok = bool(u32.RegisterHotKey(None, 1, mods | MOD_NOREPEAT, vk))
+        ready.set()
+        if not self.ok:
+            return
+        try:
+            while not self._stop.is_set():
+                r = u32.GetMessageW(ctypes.byref(msg), None, 0, 0)
+                if r in (0, -1):
+                    break
+                if msg.message == WM_HOTKEY:
+                    try:
+                        self.callback()
+                    except Exception:
+                        pass
+        finally:
+            u32.UnregisterHotKey(None, 1)
+
+
 # ----------------------------------------------------------------------------- frameless window
 _W32 = {}
 GWL_STYLE = -16
@@ -596,10 +658,19 @@ def set_click_through(hwnd, on=True, alpha=255, keep_layer=False):
             # The caller already configured this window's transparency (Tk's -transparentcolor
             # sets LWA_COLORKEY). Setting LWA_ALPHA here would replace that and make the whole
             # window opaque, so only add the hit-testing flag and leave the layer alone.
-            ex = u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
-            u32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE,
-                                  (ex | WS_EX_TRANSPARENT) if on else (ex & ~WS_EX_TRANSPARENT))
-            return True
+            #
+            # Read it back: Tk re-applies window styles of its own while a window is being mapped,
+            # and can drop this one again. Without WS_EX_TRANSPARENT the window is only
+            # click-through where its pixels match the colour key - so anything drawn on it, a
+            # crosshair under the pointer above all, silently eats the click.
+            for _ in range(3):
+                ex = u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+                want = (ex | WS_EX_TRANSPARENT) if on else (ex & ~WS_EX_TRANSPARENT)
+                u32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want)
+                u32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004)
+                if bool(u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) == bool(on):
+                    return True
+            return False
         ex = u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
         if on:
             ex |= WS_EX_TRANSPARENT | WS_EX_LAYERED

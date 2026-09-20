@@ -10,7 +10,7 @@ import sys
 import traceback
 
 APP_NAME = "MagCopy"
-APP_VERSION = "1.1"
+APP_VERSION = "1.2"
 FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if FROZEN
            else os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

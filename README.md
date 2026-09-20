@@ -3,7 +3,7 @@
 Two shortcuts, no ceremony.
 
 - **Ctrl+Shift+A** — drag a rectangle over anything. The screenshot goes straight to the clipboard. No preview, no save dialog, no window. Paste it wherever you were going.
-- **Ctrl+Shift+S** — drag a rectangle and record it. Trim it, crop it, then save. The GIF comes out as large and sharp as will fit under Discord's limit.
+- **Ctrl+Shift+S** — drag a rectangle and record it. **Escape** stops it and opens the editor. Trim it, crop it, then save. The GIF comes out as large and sharp as will fit under Discord's limit.
 
 Windows only.
 
@@ -17,12 +17,22 @@ Windows only.
          src="https://img.shields.io/github/v/release/magholmes/MagCopy?style=for-the-badge&labelColor=16171E&color=342E38&label=version"></a>
 </p>
 
-That link always serves the newest build. Unzip it anywhere and run `MagCopy.exe` — nothing to
-install, no setup. It lives in the notification area.
+That link always serves the newest build.
+
+1. Right-click the zip → **Extract All**.
+2. Open the `MagCopy` folder it makes and double-click **`Install MagCopy.bat`**.
+
+That is all of it. The installer copies MagCopy into your own user folder, adds a Start menu and
+desktop shortcut, and starts it — no administrator rights, no setup questions, and nothing written
+outside your account. It lives in the notification area, by the clock. `Uninstall MagCopy.bat` in
+the installed folder puts everything back; your saved captures are never touched.
+
+If you would rather not install anything, double-click `MagCopy.exe` where it sits. Identical
+program — you just do not get the shortcuts.
 
 There is also a single-file `MagCopy.exe` on the [releases page](https://github.com/magholmes/MagCopy/releases/latest)
-if you would rather have one file. **Chrome is much more likely to block that one**, for reasons
-worth knowing about.
+if you want one file and nothing else. **Chrome is much more likely to block that one**, for
+reasons worth knowing about.
 
 <details>
 <summary><b>Why a browser or scanner may call this a virus</b></summary>
@@ -153,6 +163,8 @@ With a **shape** set, the drag is held to that ratio — including when it is cl
 ## While recording
 
 A viewfinder marks the region for the length of the recording: a soft hairline edge stating where the boundary is, solid brackets at the four corners, and a small bar with the elapsed time and stop/cancel. The weight is in the corners rather than in the line, so the region reads as framed without a red box sitting on top of whatever you are recording.
+
+**Escape stops the recording** and takes you straight to the editor; so does pressing the GIF shortcut again, or the bar's stop button. Escape has to be claimed as a real global hotkey to work at all — while recording, the focused window belongs to whatever is being recorded, so nothing of MagCopy's is in a position to see the key. It is registered when the recording starts and released the instant it ends, so Escape belongs to the rest of your machine again the moment you stop.
 
 Every piece sits *outside* the captured rectangle and is click-through, so none of it can appear in the GIF and none of it eats a click meant for the app you are recording. Turn it off with the `show frame` toggle.
 
