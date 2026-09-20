@@ -109,7 +109,7 @@ Every piece sits *outside* the captured rectangle and is click-through, so none 
 
 ## Editing
 
-The editor opens on its own after a recording, sized to your screen rather than to a fixed thumbnail — a 1280×720 recording previews at 1280×720. Scrub the filmstrip, drag the handles to trim, set a speed, save. Space plays, Ctrl+S saves, Escape discards.
+The editor opens on its own after a recording, taking at most 80% of the monitor the clip was recorded on — and never upscaling past the recording's own size, since blowing a small capture up only makes it soft. It measures its own controls while still hidden to work out how much room the picture can have, and is mapped once at that size, so nothing is ever seen to resize. Scrub the filmstrip, drag the handles to trim, set a speed, save. Space plays, Ctrl+S saves, Escape discards.
 
 **Drag on the picture to crop**, then drag any edge or corner to adjust it, or drag from inside to move the whole box. `save crop` locks it in; `reset crop` puts it back. The crop is applied to the full-quality master before anything is scaled, so cropping to the interesting part spends the whole size budget on it instead of on the parts you were going to throw away.
 
@@ -141,8 +141,8 @@ MagCopy is MIT (see `LICENSE`). The tools it runs are separate programs, invoked
 | [gifsicle](https://www.lcdf.org/gifsicle/) | GPL-2.0 |
 | [Geist / Geist Mono](https://vercel.com/font) | SIL Open Font Licence — see `fonts/LICENSE-Geist-OFL.txt` |
 
-The icon is built from `icon_source.jpg`, the author's own photograph:
-`python tools/make_icon.py icon_source.jpg --crop=110,330,910,1030`.
+The icon is built from `icon_source.png`, a cut-out the author owns:
+`python tools/cutout.py photo.jpg icon_source.png` then `python tools/make_icon.py icon_source.png`.
 
 They are not bundled in this repository; `tools/fetch_binaries.py` downloads them.
 

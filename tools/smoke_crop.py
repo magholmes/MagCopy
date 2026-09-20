@@ -2,7 +2,7 @@
 import os, sys, tempfile, time, tkinter as tk
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from magcopy import win, optimize
-from magcopy.editor import preview_size
+from magcopy.editor import fit_preview, SCREEN_FRACTION
 from magcopy.theme import register_fonts
 
 ok = True
@@ -10,14 +10,18 @@ def check(n, good, d=""):
     global ok; ok = ok and good
     print("%-40s %s %s" % (n, "ok  " if good else "FAIL", d))
 
-# preview sizing: big by default, and never taller than the screen allows
-check("1280x720 on a 2560x1440 screen", preview_size(1280, 720, 2560, 1440, 1.0) == (1280, 720),
-      str(preview_size(1280, 720, 2560, 1440, 1.0)))
-pw, ph = preview_size(600, 1400, 2560, 1440, 1.0)
-check("tall portrait fits the screen", ph <= 1440 - 330 - 80 + 2, "%dx%d" % (pw, ph))
-pw, ph = preview_size(1280, 720, 1366, 768, 1.0)
-check("small screen still gets a preview", pw >= 420 and ph > 0, "%dx%d" % (pw, ph))
-check("bigger than the old fixed 460 px", preview_size(1280, 720, 2560, 1440, 1.0)[0] > 460)
+# preview fitting: fills the space it is given, keeps shape, never upscales past the source
+pw, ph = fit_preview(1280, 720, 1600, 900)
+check("fits a wide source in a big space", (pw, ph) == (1280, 720), "%dx%d" % (pw, ph))
+pw, ph = fit_preview(1920, 1080, 1200, 900)
+check("limited by width, aspect kept", pw == 1200 and abs(ph - 1200 * 1080 / 1920) <= 2,
+      "%dx%d" % (pw, ph))
+pw, ph = fit_preview(600, 1400, 1600, 700)
+check("tall source limited by height", ph <= 700 and pw < 600, "%dx%d" % (pw, ph))
+check("never upscaled past the source", fit_preview(400, 300, 4000, 4000)[0] == 400,
+      str(fit_preview(400, 300, 4000, 4000)))
+check("aspect ratio preserved", abs((lambda w, h: w / h)(*fit_preview(1920, 1080, 900, 900))
+                                   - 1920 / 1080) < 0.02)
 
 win.set_dpi_aware(); register_fonts()
 root = tk.Tk(); root.withdraw()

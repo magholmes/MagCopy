@@ -33,29 +33,27 @@ from .settings import log_exc, save_dir, stamped_name
 from .theme import (Button, DotToggle, Hairline, Label, Panel, Pills, ProgressLine,
                     TextLink, IconButton, round_rect)
 
-PREVIEW_MAX_W = 1280            # the preview is sized to the screen, not to a fixed 460 px
-PREVIEW_MIN_W = 420
+PREVIEW_MIN_W = 360
 PREVIEW_FPS_CAP = 50.0          # the preview plays at the recorded rate, not half of it
 STRIP_THUMBS = 24
+SCREEN_FRACTION = 0.80          # how much of the monitor the editor window may occupy
 
 
-def preview_size(src_w, src_h, screen_w, screen_h, scale=1.0):
-    """Largest preview that leaves room for the timeline, transport and buttons below it.
+def fit_preview(src_w, src_h, avail_w, avail_h):
+    """Largest preview of the source's shape that fits in the space left for it.
 
-    The editor is where the recording is judged, so the picture should be as big as the screen
-    allows rather than a fixed thumbnail - but the chrome underneath it has a real height, and a
-    tall portrait recording must not push the buttons off the bottom of the screen.
+    Never larger than the recording itself: blowing a 400 px capture up to fill a monitor only
+    makes it soft, and the editor is where the result is judged.
     """
-    chrome_h = int(330 * scale)
-    max_w = max(PREVIEW_MIN_W, min(PREVIEW_MAX_W, int(screen_w * 0.62)))
-    max_h = max(240, screen_h - chrome_h - int(80 * scale))
-    wd = min(max_w, src_w) if src_w else max_w
-    ht = int(round(wd * src_h / max(1, src_w)))
-    if ht > max_h:                                   # too tall: fit to height instead
-        ht = max_h
-        wd = int(round(ht * src_w / max(1, src_h)))
-    wd = max(PREVIEW_MIN_W // 2, wd - wd % 2)
-    return wd, max(2, ht - ht % 2)
+    if src_w <= 0 or src_h <= 0:
+        return PREVIEW_MIN_W, int(PREVIEW_MIN_W * 9 / 16)
+    wd = max(PREVIEW_MIN_W, min(avail_w, src_w))
+    ht = wd * src_h / src_w
+    if ht > avail_h:                                 # too tall for the space: fit to height
+        ht = max(120, avail_h)
+        wd = ht * src_w / src_h
+    wd, ht = int(round(wd)), int(round(ht))
+    return max(2, wd - wd % 2), max(2, ht - ht % 2)
 
 
 class Timeline(tk.Canvas):
@@ -221,10 +219,7 @@ class GifEditor:
             self.app.toast("that recording could not be read", error=True)
             self.cleanup()
             return
-        sw = self.app.root.winfo_screenwidth()
-        sh = self.app.root.winfo_screenheight()
-        self.pw, self.ph = preview_size(wd, ht, sw, sh, self.s)
-        self._build()
+        self._build()      # sizes the preview itself, by measuring the chrome while hidden
         threading.Thread(target=self._prepare, name="magcopy-preview", daemon=True).start()
 
     def cleanup(self):
@@ -667,7 +662,12 @@ class GifEditor:
 
         # preview
         wd, ht, dur, fps = self.src
-        self.canvas = tk.Canvas(root, width=self.pw, height=self.ph, bd=0, highlightthickness=0,
+        # Start the picture at a placeholder size. Everything below it is laid out first, then the
+        # window is asked how tall it is without a preview - that measurement is the chrome height,
+        # which is the only honest way to know how much room is left. Guessing it is what made the
+        # window overshoot. All of this happens while the window is withdrawn, so nothing is seen
+        # to resize: it is mapped once, at its final size.
+        self.canvas = tk.Canvas(root, width=16, height=16, bd=0, highlightthickness=0,
                                 bg=c["bg2"], cursor="crosshair")
         self.canvas.pack(padx=self.PADX, pady=(S(16), S(10)))
         self.canvas.bind("<ButtonPress-1>", self._crop_press)
@@ -753,16 +753,69 @@ class GifEditor:
         limit.pack(side="right")
         T.add(limit)
 
+        # ---- size the preview to what is actually left, on the monitor this will open on
+        top.update_idletasks()
+        # The chrome sits BELOW the picture, so only its height eats into the space the preview
+        # can have; horizontally the picture just needs its own side padding, and the window ends
+        # up as wide as whichever of the two needs more.
+        chrome_h = max(0, root.winfo_reqheight() - 16)
+        wx, wy, ww, wh = self._target_work_area()
+        avail_w = int(ww * SCREEN_FRACTION) - 2 * self.PADX
+        avail_h = int(wh * SCREEN_FRACTION) - chrome_h
+        self.pw, self.ph = fit_preview(self.src[0], self.src[1], max(avail_w, PREVIEW_MIN_W),
+                                       max(avail_h, 120))
+        self.canvas.configure(width=self.pw, height=self.ph)
+
+        # Measuring with a 16 px placeholder is close but not exact - a label can wrap differently
+        # once the picture has its real width - so check the finished size and take the overshoot
+        # off the preview. Still withdrawn, so this settles before anything is on screen.
+        budget_w, budget_h = int(ww * SCREEN_FRACTION), int(wh * SCREEN_FRACTION)
+        for _ in range(3):
+            top.update_idletasks()
+            over_h = root.winfo_reqheight() - budget_h
+            over_w = root.winfo_reqwidth() - budget_w
+            if over_h <= 0 and over_w <= 0:
+                break
+            shrink_h = self.ph - max(120, self.ph - max(0, over_h))
+            shrink_w = self.pw - max(PREVIEW_MIN_W, self.pw - max(0, over_w))
+            if not shrink_h and not shrink_w:
+                break
+            self.pw, self.ph = fit_preview(self.src[0], self.src[1],
+                                           max(PREVIEW_MIN_W, self.pw - shrink_w),
+                                           max(120, self.ph - shrink_h))
+            self.canvas.configure(width=self.pw, height=self.ph)
+
+        # Strip the title bar BEFORE fixing the size. Removing WS_CAPTION does not shrink the
+        # window, it hands the caption's rows to the client area - so a geometry set beforehand
+        # comes out about 30 px taller than asked for. Doing it while still withdrawn means the
+        # window is mapped exactly once, at exactly the right size, with nothing seen to resize.
+        top.update_idletasks()
+        self._frameless()
         top.update_idletasks()
         w_, h_ = root.winfo_reqwidth(), root.winfo_reqheight()
-        sw, sh = top.winfo_screenwidth(), top.winfo_screenheight()
-        top.geometry("%dx%d+%d+%d" % (w_, h_, (sw - w_) // 2, max(20, (sh - h_) // 2)))
+        w_, h_ = min(w_, ww - 16), min(h_, wh - 16)
+        top.geometry("%dx%d+%d+%d" % (w_, h_, wx + (ww - w_) // 2, wy + max(8, (wh - h_) // 2)))
         top.deiconify()
-        top.after(30, self._frameless)
+        top.after(30, self._frameless)      # again once mapped: rounding and border colour
         top.bind("<space>", lambda e: self.toggle_play())
         top.bind("<Escape>", lambda e: self.close())
         top.bind("<Control-s>", lambda e: self.save())
         self.timeline.bind("<Configure>", lambda e: self._fit_strip())
+
+    def _target_work_area(self):
+        """Work area of the monitor the recording came from, falling back to the pointer's.
+
+        Sizing against the primary monitor is wrong the moment there are two: a clip recorded on a
+        1152x2048 portrait panel would be measured against a 2560x1440 one and open off the edge.
+        """
+        try:
+            if self.rect:
+                return win.work_area_for(self.rect)
+            px, py = self.app.root.winfo_pointerx(), self.app.root.winfo_pointery()
+            return win.work_area_for((px, py, 1, 1))
+        except Exception:
+            r = self.app.root
+            return (0, 0, r.winfo_screenwidth(), r.winfo_screenheight())
 
     def _frameless(self):
         c = self.theme.c

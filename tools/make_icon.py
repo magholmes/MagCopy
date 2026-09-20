@@ -23,23 +23,40 @@ SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]
 
 
 def square(im):
-    """Centre-crop to a square: icons are square, and letterboxing wastes the small sizes."""
+    """Make it square.
+
+    An opaque picture is centre-cropped - letterboxing an icon wastes the small sizes on bars.
+    A cut-out with transparency is padded instead: cropping it would slice the subject, and the
+    padding costs nothing because it is invisible.
+    """
     w, h = im.size
+    if w == h:
+        return im
+    if im.mode == "RGBA" and im.getextrema()[3][0] < 255:
+        side = max(w, h)
+        out = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+        out.paste(im, ((side - w) // 2, (side - h) // 2), im)
+        return out
     side = min(w, h)
-    left = (w - side) // 2
-    top = (h - side) // 2
-    return im.crop((left, top, left + side, top + side))
+    return im.crop(((w - side) // 2, (h - side) // 2, (w - side) // 2 + side, (h - side) // 2 + side))
 
 
 def render(im, size):
     out = im.resize((size, size), Image.LANCZOS)
-    if size <= 48:
-        # Downscaling always costs local contrast; at tray size that is the difference between
-        # a recognisable shape and a smudge. Unsharp first, then a little saturation back.
-        radius = 0.6 if size <= 24 else 0.8
-        out = out.filter(ImageFilter.UnsharpMask(radius=radius, percent=110, threshold=2))
-        out = ImageEnhance.Color(out).enhance(1.12)
-    return out
+    if size > 48:
+        return out
+    # Downscaling always costs local contrast; at tray size that is the difference between a
+    # recognisable shape and a smudge. Sharpen the colour only - running an unsharp mask over the
+    # alpha channel puts a bright rim around a cut-out, which is exactly the halo the cut avoided.
+    radius = 0.6 if size <= 24 else 0.8
+    alpha = out.split()[-1] if out.mode == "RGBA" else None
+    rgb = out.convert("RGB").filter(ImageFilter.UnsharpMask(radius=radius, percent=110, threshold=2))
+    rgb = ImageEnhance.Color(rgb).enhance(1.12)
+    if alpha is None:
+        return rgb
+    rgb = rgb.convert("RGBA")
+    rgb.putalpha(alpha)
+    return rgb
 
 
 def write_ico(frames, out_path):
@@ -71,7 +88,8 @@ def write_ico(frames, out_path):
 
 
 def build(src_path, out_path, crop=None):
-    im = Image.open(src_path).convert("RGB")
+    im = Image.open(src_path)
+    im = im.convert("RGBA") if im.mode in ("RGBA", "LA", "P") else im.convert("RGB")
     if crop:
         im = im.crop(crop)
     im = square(im)

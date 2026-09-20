@@ -263,7 +263,7 @@ class App:
         if rec.repeated:
             self.toast("recorded %.1fs (%d frames repeated to keep timing)"
                        % (rec.duration, rec.repeated))
-        self.editor = GifEditor(self, rec.out_path)
+        self.editor = GifEditor(self, rec.out_path, rect=rec.rect)
         self.editor.open()
 
     def editor_closed(self, editor):
