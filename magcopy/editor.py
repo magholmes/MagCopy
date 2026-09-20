@@ -10,9 +10,16 @@ image at open time and makes finding the moment you wanted a glance rather than 
 
 Preview extraction and encoding both run on worker threads and report back through the app's
 event queue, never by touching Tk directly - see the note in app.py.
+
+Playback runs at the recorded frame rate and is anchored to the wall clock. Stepping a fixed
+number of milliseconds per tick makes the preview drift slower than real time - every late tick
+is time the clip never gets back - so a 50 fps recording looked like half that. Decoding a preview
+frame costs about 6 ms even at 1280 px, so 50 fps has plenty of headroom; what it needed was
+honest timing.
 """
 import os
 import shutil
+import time
 import tempfile
 import threading
 import tkinter as tk
@@ -28,7 +35,7 @@ from .theme import (Button, DotToggle, Hairline, Label, Panel, Pills, ProgressLi
 
 PREVIEW_MAX_W = 1280            # the preview is sized to the screen, not to a fixed 460 px
 PREVIEW_MIN_W = 420
-PREVIEW_FPS_CAP = 25.0
+PREVIEW_FPS_CAP = 50.0          # the preview plays at the recorded rate, not half of it
 STRIP_THUMBS = 24
 
 
@@ -202,7 +209,8 @@ class GifEditor:
         self.pw = PREVIEW_MIN_W           # preview pixel size, computed from the screen
         self.ph = 240
         self.crop = None                  # (x, y, w, h) in SOURCE pixels, or None for the lot
-        self._crop_drag = None
+        self.crop_locked = False          # saved: handles hidden, crop still applied
+        self._crop_drag = None            # (kind, anchor, grab-point) while dragging
 
     # ---- lifecycle
     def open(self):
@@ -342,6 +350,9 @@ class GifEditor:
         self.pos_label.configure(text="%.2fs" % t)
 
     # ---- crop
+    HANDLE = 5                            # half-size of a grab square, in canvas pixels
+    GRAB = 9                              # how close a click must be to count as grabbing an edge
+
     def _to_source(self, cx, cy):
         """Canvas point -> source pixel, clamped to the picture."""
         ox, oy, iw, ih = getattr(self, "_img_box", (0, 0, self.pw, self.ph))
@@ -355,43 +366,128 @@ class GifEditor:
         sw, sh = self.src[0], self.src[1]
         return ox + (sx / max(1, sw)) * iw, oy + (sy / max(1, sh)) * ih
 
+    def _handles(self):
+        """Canvas positions of the eight grab points, keyed by which edges they move."""
+        if not self.crop:
+            return {}
+        x0, y0 = self._to_canvas(self.crop[0], self.crop[1])
+        x1, y1 = self._to_canvas(self.crop[0] + self.crop[2], self.crop[1] + self.crop[3])
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        return {"nw": (x0, y0), "n": (mx, y0), "ne": (x1, y0), "e": (x1, my),
+                "se": (x1, y1), "s": (mx, y1), "sw": (x0, y1), "w": (x0, my)}
+
+    def _hit(self, cx, cy):
+        """What is under the pointer: a handle name, "move", or None."""
+        if not self.crop:
+            return None
+        for name, (hx, hy) in self._handles().items():
+            if abs(cx - hx) <= self.GRAB and abs(cy - hy) <= self.GRAB:
+                return name
+        x0, y0 = self._to_canvas(self.crop[0], self.crop[1])
+        x1, y1 = self._to_canvas(self.crop[0] + self.crop[2], self.crop[1] + self.crop[3])
+        if x0 < cx < x1 and y0 < cy < y1:
+            return "move"
+        return None
+
+    CURSORS = {"nw": "size_nw_se", "se": "size_nw_se", "ne": "size_ne_sw", "sw": "size_ne_sw",
+               "n": "sb_v_double_arrow", "s": "sb_v_double_arrow",
+               "e": "sb_h_double_arrow", "w": "sb_h_double_arrow", "move": "fleur"}
+
+    def _crop_hover(self, e):
+        if self._crop_drag or not self.frames:
+            return
+        hit = None if self.crop_locked else self._hit(e.x, e.y)
+        self.canvas.configure(cursor=self.CURSORS.get(hit, "crosshair"))
+
     def _crop_press(self, e):
         if not self.frames:
             return
-        self._crop_drag = self._to_source(e.x, e.y)
-        self.crop = None
+        hit = None if self.crop_locked else self._hit(e.x, e.y)
+        if hit:
+            # adjusting: remember all four edges so dragging one never disturbs another
+            self._crop_drag = (hit, tuple(self.crop), self._to_source(e.x, e.y))
+        else:
+            self.crop_locked = False
+            self._crop_drag = ("new", self._to_source(e.x, e.y), None)
+            self.crop = None
         self._draw_crop()
 
     def _crop_move(self, e):
         if self._crop_drag is None:
             return
-        x0, y0 = self._crop_drag
-        x1, y1 = self._to_source(e.x, e.y)
-        x, y = min(x0, x1), min(y0, y1)
-        wd, ht = abs(x1 - x0), abs(y1 - y0)
-        self.crop = (x, y, wd, ht)
+        kind, anchor, grab = self._crop_drag
+        sw, sh = float(self.src[0]), float(self.src[1])
+        px, py = self._to_source(e.x, e.y)
+        if kind == "new":
+            x0, y0 = anchor
+            self.crop = (min(x0, px), min(y0, py), abs(px - x0), abs(py - y0))
+        elif kind == "move":
+            ox, oy, ow, oh = anchor
+            nx = min(max(ox + (px - grab[0]), 0.0), sw - ow)
+            ny = min(max(oy + (py - grab[1]), 0.0), sh - oh)
+            self.crop = (nx, ny, ow, oh)
+        else:
+            ox, oy, ow, oh = anchor
+            left, top, right, bottom = ox, oy, ox + ow, oy + oh
+            if "w" in kind:
+                left = min(max(px, 0.0), right - 16)
+            if "e" in kind:
+                right = max(min(px, sw), left + 16)
+            if "n" in kind:
+                top = min(max(py, 0.0), bottom - 16)
+            if "s" in kind:
+                bottom = max(min(py, sh), top + 16)
+            self.crop = (left, top, right - left, bottom - top)
         self._draw_crop()
+        self._update_estimate()
 
     def _crop_release(self, e):
+        kind = self._crop_drag[0] if self._crop_drag else None
         self._crop_drag = None
         if self.crop:
-            # even dimensions and at least a usable block; anything tiny was a stray click
             x, y, wd, ht = (int(round(v)) for v in self.crop)
             wd, ht = wd - wd % 2, ht - ht % 2
             sw, sh = int(self.src[0]), int(self.src[1])
             x, y = max(0, min(x, sw - 2)), max(0, min(y, sh - 2))
             wd, ht = max(0, min(wd, sw - x)), max(0, min(ht, sh - y))
-            self.crop = (x, y, wd, ht) if wd >= 32 and ht >= 32 else None
+            # a tiny box from a stray click is not a crop; a deliberate resize may be small
+            floor = 32 if kind == "new" else 16
+            self.crop = (x, y, wd, ht) if wd >= floor and ht >= floor else None
         self._draw_crop()
         self._update_estimate()
+        self._sync_crop_buttons()
+
+    def _save_crop(self):
+        """Lock the crop in: the handles come off, the crop stays applied to the save."""
+        if not self.crop:
+            return
+        self.crop_locked = True
+        self._crop_drag = None
+        self.canvas.configure(cursor="crosshair")
+        self._draw_crop()
+        self._sync_crop_buttons()
+        self.status.configure(text="crop saved - %d x %d - drag the picture to start another"
+                                   % (self.crop[2], self.crop[3]))
 
     def _reset_crop(self):
         self.crop = None
+        self.crop_locked = False
+        self._crop_drag = None
+        self.canvas.configure(cursor="crosshair")
         self._draw_crop()
         self._update_estimate()
+        self._sync_crop_buttons()
+
+    def _sync_crop_buttons(self):
+        try:
+            self.btn_crop.set_enabled(bool(self.crop) and not self.crop_locked)
+            self.btn_crop.set_text("crop saved" if self.crop_locked else "save crop")
+            self.link_reset_crop.set_enabled(bool(self.crop))
+        except Exception:
+            pass
 
     def _draw_crop(self):
-        """Dim what will be cut, outline what will be kept."""
+        """Dim what will be cut, outline what will be kept, and show the grab handles."""
         self.canvas.delete("crop")
         if not self.crop:
             return
@@ -406,13 +502,17 @@ class GifEditor:
                 # almost invisible, and the point is to show what will be thrown away
                 self.canvas.create_rectangle(a, b, cc, d, fill="#000000", outline="",
                                              stipple="gray75", tags="crop")
-        self.canvas.create_rectangle(x0, y0, x1, y1, outline=c["focus"], width=1, tags="crop")
-        n = max(6, min(18, int(min(x1 - x0, y1 - y0) * 0.14)))
-        for a, b, cc, d in ((x0, y0, x0 + n, y0), (x0, y0, x0, y0 + n),
-                            (x1, y0, x1 - n, y0), (x1, y0, x1, y0 + n),
-                            (x0, y1, x0 + n, y1), (x0, y1, x0, y1 - n),
-                            (x1, y1, x1 - n, y1), (x1, y1, x1, y1 - n)):
-            self.canvas.create_line(a, b, cc, d, fill=c["focus"], width=2, tags="crop")
+        accent = c["mute"] if self.crop_locked else c["focus"]
+        self.canvas.create_rectangle(x0, y0, x1, y1, outline=accent, width=1, tags="crop")
+        self.canvas.create_text(x0 + 6, y0 + 6, anchor="nw", tags="crop", fill=c["ink"],
+                                font=self.fonts.mono8,
+                                text="%d x %d" % (int(self.crop[2]), int(self.crop[3])))
+        if self.crop_locked:
+            return
+        h = self.HANDLE
+        for hx, hy in self._handles().values():
+            self.canvas.create_rectangle(hx - h, hy - h, hx + h, hy + h, fill=c["focus"],
+                                         outline=c["bg"], tags="crop")
 
     def toggle_play(self):
         self.playing = not self.playing
@@ -420,23 +520,31 @@ class GifEditor:
         if self.playing:
             if self.timeline.play >= self.timeline.end - 0.02:
                 self.timeline.play = self.timeline.start
+            self._anchor(self.timeline.play)
             self._tick()
         elif self._play_job:
             self.top.after_cancel(self._play_job)
             self._play_job = None
 
+    def _anchor(self, t):
+        self._play_from = t
+        self._play_t0 = time.perf_counter()
+
     def _tick(self):
         if not self.playing:
             return
-        step = 1.0 / self.preview_fps
-        t = self.timeline.play + step * self.speed
+        # where playback should be by the clock, not by how many ticks happened to fire
+        t = self._play_from + (time.perf_counter() - self._play_t0) * self.speed
         if t >= self.timeline.end:
             t = self.timeline.start
+            self._anchor(t)
         self.show_frame(t)
-        self._play_job = self.top.after(int(1000 / self.preview_fps), self._tick)
+        self._play_job = self.top.after(max(1, int(1000 / self.preview_fps)), self._tick)
 
     def seek(self, t):
         self.show_frame(t)
+        if self.playing:
+            self._anchor(t)
 
     def on_range(self, a, b):
         self._update_estimate()
@@ -565,6 +673,7 @@ class GifEditor:
         self.canvas.bind("<ButtonPress-1>", self._crop_press)
         self.canvas.bind("<B1-Motion>", self._crop_move)
         self.canvas.bind("<ButtonRelease-1>", self._crop_release)
+        self.canvas.bind("<Motion>", self._crop_hover)
 
         self.timeline = Timeline(root, F, dur, self.on_range, self.seek, self.s)
         self.timeline.pack(fill="x", padx=self.PADX)
@@ -589,10 +698,14 @@ class GifEditor:
         reset = TextLink(row, "reset trim", self._reset_trim, F)
         reset.pack(side="left", padx=(S(12), 0))
         T.add(reset)
-        self.link_crop = TextLink(row, "reset crop", self._reset_crop, F, role="mute")
-        self.link_crop.pack(side="right")
-        T.add(self.link_crop)
-        hintc = Label(row, role="mute2", text="drag on the picture to crop", font=F.mono8, anchor="e")
+        self.link_reset_crop = TextLink(row, "reset crop", self._reset_crop, F, role="mute")
+        self.link_reset_crop.pack(side="right")
+        T.add(self.link_reset_crop)
+        self.btn_crop = Button(row, F, "save crop", self._save_crop, "ghost", self.s)
+        self.btn_crop.pack(side="right", padx=(0, S(10)))
+        T.add(self.btn_crop)
+        hintc = Label(row, role="mute2", text="drag on the picture, then drag its edges",
+                      font=F.mono8, anchor="e")
         hintc.pack(side="right", padx=(0, S(12)))
         T.add(hintc)
 
@@ -630,6 +743,7 @@ class GifEditor:
         self.btn_save.pack(side="left")
         self.btn_save.set_enabled(False)
         T.add(self.btn_save)
+        self._sync_crop_buttons()
         discard = TextLink(foot, "discard", self.close, F, role="mute")
         discard.pack(side="left", padx=(S(14), 0))
         T.add(discard)

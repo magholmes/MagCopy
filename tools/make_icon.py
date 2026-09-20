@@ -1,6 +1,10 @@
 """Build icon.ico from the source artwork.
 
-  python tools/make_icon.py path/to/image.jpg
+  python tools/make_icon.py path/to/image.jpg [out.ico] [--crop L,T,R,B]
+
+`--crop` picks the part of the photograph the icon is made from, before the square crop. The
+subject usually wants to fill the frame: a wide shot that reads fine at 256 px is a smudge of
+background at 16, where the icon actually earns its keep.
 
 An .ico is not one picture, it is a set. Windows picks a size per context - 16 px in the tray and
 title bar, 32 in Explorer's list, 256 on the desktop - and if the file only holds a big one it
@@ -66,8 +70,10 @@ def write_ico(frames, out_path):
     return out_path
 
 
-def build(src_path, out_path):
+def build(src_path, out_path, crop=None):
     im = Image.open(src_path).convert("RGB")
+    if crop:
+        im = im.crop(crop)
     im = square(im)
     return write_ico([render(im, s) for s in SIZES], out_path)
 
@@ -78,8 +84,15 @@ def main(argv):
         return 2
     src = argv[0]
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    out = argv[1] if len(argv) > 1 else os.path.join(root, "icon.ico")
-    build(src, out)
+    rest = [a for a in argv[1:] if not a.startswith("--")]
+    out = rest[0] if rest else os.path.join(root, "icon.ico")
+    crop = None
+    for a in argv[1:]:
+        if a.startswith("--crop="):
+            crop = tuple(int(v) for v in a.split("=", 1)[1].split(","))
+        elif a == "--crop":
+            crop = tuple(int(v) for v in argv[argv.index(a) + 1].split(","))
+    build(src, out, crop)
     print("wrote %s (%.0f KB) with sizes %s"
           % (out, os.path.getsize(out) / 1024, ", ".join(str(s) for s in SIZES)))
     return 0

@@ -111,7 +111,9 @@ Every piece sits *outside* the captured rectangle and is click-through, so none 
 
 The editor opens on its own after a recording, sized to your screen rather than to a fixed thumbnail — a 1280×720 recording previews at 1280×720. Scrub the filmstrip, drag the handles to trim, set a speed, save. Space plays, Ctrl+S saves, Escape discards.
 
-**Drag on the picture to crop.** The crop is applied to the full-quality master before anything is scaled, so cropping to the interesting part spends the whole size budget on it instead of on the parts you were going to throw away. `reset crop` puts it back.
+**Drag on the picture to crop**, then drag any edge or corner to adjust it, or drag from inside to move the whole box. `save crop` locks it in; `reset crop` puts it back. The crop is applied to the full-quality master before anything is scaled, so cropping to the interesting part spends the whole size budget on it instead of on the parts you were going to throw away.
+
+Playback runs at the recorded frame rate — a 50 fps recording previews at 50 fps — and is anchored to the wall clock rather than stepping a fixed number of milliseconds per tick, because every late tick is time the clip never gets back and the preview slowly drifts behind real time.
 
 Preview frames are extracted once as small JPEGs and paged in on demand — scrubbing a video file through a decoder is far too slow to feel like scrubbing. The trim is still expressed in seconds against the full-quality master, so nothing about the preview limits the output.
 
@@ -139,7 +141,8 @@ MagCopy is MIT (see `LICENSE`). The tools it runs are separate programs, invoked
 | [gifsicle](https://www.lcdf.org/gifsicle/) | GPL-2.0 |
 | [Geist / Geist Mono](https://vercel.com/font) | SIL Open Font Licence — see `fonts/LICENSE-Geist-OFL.txt` |
 
-The icon is built from `icon_source.jpg`, which is the author's own photograph; `python tools/make_icon.py icon_source.jpg` regenerates `icon.ico`.
+The icon is built from `icon_source.jpg`, the author's own photograph:
+`python tools/make_icon.py icon_source.jpg --crop=110,330,910,1030`.
 
 They are not bundled in this repository; `tools/fetch_binaries.py` downloads them.
 
