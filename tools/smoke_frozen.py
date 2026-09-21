@@ -68,9 +68,18 @@ def drive():
     # The selection is set by hand here, but the picker's own <Motion> binding is live, and the
     # overlay maps underneath wherever the real pointer happens to be. One stray motion event
     # while dragging is true drags the selection off to the cursor, and everything sampled after
-    # that is measured in the wrong place. Nothing about the pointer is under test, so it is
-    # taken out for the duration rather than hoped about.
-    sel._motion = lambda e: None
+    # that is measured in the wrong place. Nothing about the pointer is under test, so the
+    # bindings come off for the duration.
+    #
+    # They have to come off the widget: Tk stores the bound method it was given, so reassigning
+    # sel._motion afterwards rebinds nothing and the original still runs.
+    for _cv in (sel.cv, getattr(sel, "chrome_cv", None), getattr(sel, "sel", None)):
+        if _cv is not None:
+            for _seq in ("<Motion>", "<B1-Motion>"):
+                try:
+                    _cv.unbind(_seq)
+                except Exception:
+                    pass
     sel.start, sel.cur, sel.dragging = (SEL[0], SEL[1]), (SEL[0] + SEL[2], SEL[1] + SEL[3]), True
     if plat.IS_MAC:
         res["level_before"] = sel._top_hwnd.level()
