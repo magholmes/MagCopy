@@ -46,6 +46,15 @@ def drive():
     sel.start, sel.cur, sel.dragging = (SEL[0], SEL[1]), (SEL[0] + SEL[2], SEL[1] + SEL[3]), True
     if plat.IS_MAC:
         res["level_before"] = sel._top_hwnd.level()
+        # Every layer must cover the screen exactly. Tk maps a full-screen window 38 points low,
+        # clear of the menu bar, and a layer left there is wrong in two visible ways: the still
+        # seen through the selection is offset by the height of the menu bar - which reads as the
+        # top bar duplicating - and anything drawn on it, the crosshair above all, sits that far
+        # from the pointer it is marking.
+        res["frames"] = {name: tuple(int(v) for v in (h.frame().origin.x, h.frame().origin.y,
+                                                      h.frame().size.width, h.frame().size.height))
+                         for name, h in (("dim", sel._top_hwnd), ("still", sel._under_hwnd),
+                                         ("chrome", sel._chrome_hwnd)) if h is not None}
     sel._redraw(); sel.top.update_idletasks(); root.update()
     if plat.IS_MAC:
         # The dim layer and the undimmed still beneath it are stacked by level, so the dim layer
@@ -84,6 +93,11 @@ if plat.IS_MAC:
     if res.get("level_after") != res.get("level_before"):
         print("FAIL: the dim layer lost its window level when the hole was punched (%s -> %s)"
               % (res.get("level_before"), res.get("level_after"))); ok = False
+    want = (0, 0, sel.vw, sel.vh)
+    for name, frame in (res.get("frames") or {}).items():
+        if frame != want:
+            print("FAIL: the %s layer is at %s, not covering the screen at %s"
+                  % (name, frame, want)); ok = False
     if res.get("order") != ["dim", "still"]:
         print("FAIL: the dim layer is not in front of the still - order was %r"
               % (res.get("order"),)); ok = False

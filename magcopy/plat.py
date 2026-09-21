@@ -85,6 +85,15 @@ if not IS_MAC:
                 pass
         return True
 
+    def place_overlay(hwnd, x, y, width, height, click_through=False, alpha=1.0):
+        """Win32 shows a window where it is told, so styling and moving it is enough."""
+        set_overlay_styles(hwnd)                                    # noqa: F405
+        if click_through:
+            set_click_through(hwnd, True, int(alpha * 255))         # noqa: F405
+        move_window(hwnd, x, y)                                     # noqa: F405
+        raise_topmost(hwnd)                                         # noqa: F405
+        return True
+
     def set_window_frame(hwnd, x, y, width, height):
         """Win32 places an overrideredirect window where it is told, so this is move_window."""
         return move_window(hwnd, x, y)                      # noqa: F405

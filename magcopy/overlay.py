@@ -229,9 +229,9 @@ class RegionSelector:
             plat.set_window_frame(self._top_hwnd, self.vx, self.vy, self.vw, self.vh)
             if self._under_hwnd is not None:
                 # after the dim layer's level is set, never before: order_below copies it
-                plat.set_overlay_styles(self._under_hwnd)
-                plat.set_window_frame(self._under_hwnd, self.vx, self.vy, self.vw, self.vh)
                 plat.order_below(self._under_hwnd, self._top_hwnd)
+            if self._chrome_hwnd is not None:
+                plat.raise_topmost(self._chrome_hwnd)   # chrome belongs above the dim, not below
             # No Tk grab here, and this is the reason rather than an oversight. Tk implements a
             # grab on macOS by making the window a modal panel, which carries the modal-panel
             # window level with it - 8, where this window needs 1000. It does not happen when the
@@ -360,10 +360,9 @@ class RegionSelector:
         self.under.deiconify()
         self.under.update_idletasks()
         try:
-            hwnd = plat.toplevel_hwnd(self.under)
-            plat.set_overlay_styles(hwnd)
-            plat.set_click_through(hwnd, True)
-            self._under_hwnd = hwnd
+            self._under_hwnd = plat.toplevel_hwnd(self.under)
+            plat.place_overlay(self._under_hwnd, self.vx, self.vy, self.vw, self.vh,
+                               click_through=True)
         except Exception:
             self._under_hwnd = None
 
@@ -394,7 +393,11 @@ class RegionSelector:
         self.chrome.update_idletasks()        # the wrapper window must exist before it is styled
         try:                                  # keep_layer: do not clobber the colour key with alpha
             self._chrome_hwnd = plat.toplevel_hwnd(self.chrome)
-            plat.set_overlay_styles(self._chrome_hwnd)
+            # Positioned explicitly, like every other layer here. Left to Tk it lands 38 points
+            # low, and since this is the layer the crosshair and the readout are drawn on, all of
+            # it appears that far below the pointer it is meant to be marking.
+            plat.place_overlay(self._chrome_hwnd, self.vx, self.vy, self.vw, self.vh,
+                               click_through=True)
             self._chrome_passthrough = bool(
                 plat.set_click_through(self._chrome_hwnd, True, keep_layer=True))
             if not self._chrome_keyed:
@@ -452,6 +455,18 @@ class RegionSelector:
                           (x1 - t, y2 - t, (x2 - x1) + 2 * t, 2 * t),
                           (x1 - t, y1 - t, 2 * t, (y2 - y1) + 2 * t),
                           (x2 - t, y1 - t, 2 * t, (y2 - y1) + 2 * t)]
+                continue
+            if kind == "line":
+                # A line's bounding box is generous, and every revealed pixel that is not the line
+                # shows the chrome canvas's own background - so a one-pixel crosshair came out as
+                # a dark bar several times its width. Its own coordinates are exact.
+                try:
+                    lx1, ly1, lx2, ly2 = [float(v) for v in cv.coords(item)[:4]]
+                except Exception:
+                    continue
+                pad = lw / 2.0 + 1
+                rects.append((min(lx1, lx2) - pad, min(ly1, ly2) - pad,
+                              abs(lx2 - lx1) + 2 * pad, abs(ly2 - ly1) + 2 * pad))
                 continue
             try:
                 bb = cv.bbox(item)

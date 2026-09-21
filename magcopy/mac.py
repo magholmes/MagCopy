@@ -1138,6 +1138,33 @@ def clear_window_shape(hwnd):
         return False
 
 
+def place_overlay(hwnd, x, y, width, height, click_through=False, alpha=1.0):
+    """Style, position and reveal an overlay window without it being seen in the wrong place.
+
+    Tk maps a window before anything can be done to it, and it maps a full-screen one 38 points
+    low - clear of the menu bar, which is right for an ordinary window and wrong for this. Moving
+    it afterwards works, but the frame it was first shown at has already been presented: the still
+    appears shifted down by the height of the menu bar for one frame, which reads as the top bar
+    briefly duplicating and the whole screen jumping.
+
+    So the window is made fully transparent before it is positioned and only turned up once it is
+    where it belongs. One extra step, and nothing is ever shown in the wrong place.
+    """
+    if hwnd is None:
+        return False
+    try:
+        hwnd.setAlphaValue_(0.0)
+        set_overlay_styles(hwnd)
+        if click_through:
+            hwnd.setIgnoresMouseEvents_(True)
+        set_window_frame(hwnd, x, y, width, height)
+        hwnd.orderFrontRegardless()
+        hwnd.setAlphaValue_(max(0.0, min(1.0, float(alpha))))
+        return True
+    except Exception:
+        return False
+
+
 def set_window_frame(hwnd, x, y, width, height):
     """Place a window exactly where asked, in top-left coordinates.
 
