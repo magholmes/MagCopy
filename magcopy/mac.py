@@ -960,6 +960,9 @@ def set_overlay_styles(hwnd):
                                     | NSWindowCollectionBehaviorStationary
                                     | NSWindowCollectionBehaviorFullScreenAuxiliary)
         hwnd.setHidesOnDeactivate_(False)
+        # Off by default, and the picker is built entirely around the pointer: without it there
+        # are no mouse-moved events, so the crosshair cannot follow and a drag gets no feedback.
+        hwnd.setAcceptsMouseMovedEvents_(True)
         try:
             hwnd.setHasShadow_(False)
         except Exception:

@@ -21,3 +21,6 @@ __pycache__/
 
 # Finder leaves these behind in any folder it has been shown
 .DS_Store
+
+# the picker diagnostic report
+diagnose_picker.txt
