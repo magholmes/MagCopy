@@ -184,15 +184,16 @@ class App:
             if not rect:
                 return
             x, y, wd, ht = rect
-            crop = sel.bright.crop((x - sel.vx, y - sel.vy, x - sel.vx + wd, y - sel.vy + ht))
+            # from the full-resolution still, not the point-sized one the canvas drew
+            crop = sel.crop_selection(rect)
             rgb = np.asarray(crop, dtype=np.uint8)
             bgra = np.dstack([rgb[:, :, ::-1], np.full(rgb.shape[:2], 255, np.uint8)])
             ok = plat.set_clipboard_image(bgra)
-            note = "%d × %d copied" % (wd, ht)
+            note = "%d × %d copied" % crop.size      # the real pixels, which may be 2x the drag
             if self.settings["save_screenshots"]:
                 path = capture_path(save_dir(self.settings), "png")
                 crop.save(path, "PNG")
-                self._remember(path, "%d × %d" % (wd, ht), os.path.getsize(path))
+                self._remember(path, "%d × %d" % crop.size, os.path.getsize(path))
                 note += " · saved"
             self.toast(note if ok else "could not reach the clipboard", error=not ok)
         except Exception:

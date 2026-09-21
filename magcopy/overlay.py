@@ -82,7 +82,9 @@ class RegionSelector:
         self.cur = None
         self.dragging = False
         self.shift = False
-        self.bright = None                # frozen mode only: the still the screenshot is cut from
+        self.bright = None                # frozen mode only: point-sized, for the canvas
+        self.bright_full = None           # ...and the same still at the screen's real pixels
+        self.pixel_scale = 1.0
         self.chrome = None
         self.under = None                 # frozen + hole picker: the undimmed still underneath
         self.sel = None
@@ -134,9 +136,18 @@ class RegionSelector:
             # outright. Drawing on the dim layer instead costs a little contrast and always works.
             draw_on = self.chrome_cv if self.chrome is not None else self.cv
         else:
-            bgra = plat.grab_once(vx, vy, vw, vh, cursor=False)
+            # Capture the real pixels, not the points. A Retina screen has twice the linear
+            # resolution of the coordinate space Tk draws in, and a screenshot taken at point
+            # resolution has already thrown half of it away before anything is cropped - which is
+            # the whole quality of the result. The still is kept at full size for cropping and a
+            # point-sized copy is made for the canvas, which cannot use more than that anyway.
+            self.pixel_scale = plat.scale_for((vx, vy, vw, vh))
+            pw, ph = int(round(vw * self.pixel_scale)), int(round(vh * self.pixel_scale))
+            bgra = plat.grab_once(vx, vy, vw, vh, cursor=False, retina=True)
             # PIL reads the BGRA buffer directly in BGRX raw mode, skipping a full-screen swap
-            self.bright = Image.frombuffer("RGB", (vw, vh), bgra.tobytes(), "raw", "BGRX", 0, 1)
+            self.bright_full = Image.frombuffer("RGB", (pw, ph), bgra.tobytes(), "raw", "BGRX", 0, 1)
+            self.bright = (self.bright_full.resize((vw, vh), Image.LANCZOS)
+                           if (pw, ph) != (vw, vh) else self.bright_full)
             self._dim_photo = ImageTk.PhotoImage(self.bright.point(_lut(DIM)))
             self.cv.create_image(0, 0, image=self._dim_photo, anchor="nw")
             # How the selection is shown undimmed differs by platform, and it is a measured
@@ -158,8 +169,6 @@ class RegionSelector:
 
         self.draw_cv = draw_on
         self._top_hwnd = plat.toplevel_hwnd(self.top)
-        if self.under is not None:
-            plat.order_below(self._under_hwnd, self._top_hwnd)
         self._build_chrome()
         self.top.deiconify()
         self.top.lift()
@@ -214,6 +223,12 @@ class RegionSelector:
             # anything floating - so the level is set explicitly.
             plat.set_overlay_styles(self._top_hwnd)
             plat.raise_topmost(self._top_hwnd)
+            plat.set_window_frame(self._top_hwnd, self.vx, self.vy, self.vw, self.vh)
+            if self._under_hwnd is not None:
+                # after the dim layer's level is set, never before: order_below copies it
+                plat.set_overlay_styles(self._under_hwnd)
+                plat.set_window_frame(self._under_hwnd, self.vx, self.vy, self.vw, self.vh)
+                plat.order_below(self._under_hwnd, self._top_hwnd)
             try:
                 self.top.grab_set()        # local: keeps events in this app, does not lock the session
             except Exception:
@@ -270,6 +285,22 @@ class RegionSelector:
         log_error("region selector", "no pointer activity for %ds - cancelling so the screen "
                                      "cannot stay covered" % (self.IDLE_LIMIT_MS // 1000))
         self._cancel()
+
+    def crop_selection(self, rect):
+        """The selected region out of the frozen still, at the screen's real resolution.
+
+        `rect` is in the same virtual-screen points everything else here speaks; the still behind
+        it is at `pixel_scale` times that, so a 400x300 selection on a Retina display comes back
+        800x600 - which is what the screen actually showed and what a Mac user expects a
+        screenshot of it to be.
+        """
+        x, y, wd, ht = rect
+        k = getattr(self, "pixel_scale", 1.0) or 1.0
+        src = getattr(self, "bright_full", None) or self.bright
+        left, top = (x - self.vx) * k, (y - self.vy) * k
+        box = (int(round(left)), int(round(top)),
+               int(round(left + wd * k)), int(round(top + ht * k)))
+        return src.crop(box)
 
     def _build_bright_layer(self):
         """The frozen still, full brightness, in a window directly under the dim layer.

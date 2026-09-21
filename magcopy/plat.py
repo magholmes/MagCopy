@@ -85,6 +85,10 @@ if not IS_MAC:
                 pass
         return True
 
+    def set_window_frame(hwnd, x, y, width, height):
+        """Win32 places an overrideredirect window where it is told, so this is move_window."""
+        return move_window(hwnd, x, y)                      # noqa: F405
+
     def order_below(hwnd, other):
         """No equivalent needed: the Win32 picker moves a canvas rather than stacking windows."""
         return False

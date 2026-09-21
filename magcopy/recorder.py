@@ -278,12 +278,13 @@ class Recorder:
         timer_raised = False
         try:
             timer_raised = plat.begin_precise_timing()
-            proc = popen(self._ffmpeg_args(wd, ht), stdin=subprocess.PIPE,
+            # The grabber comes first now, because it decides the frame size. The region was
+            # dragged in points; on a Retina screen the frames are twice that in each direction,
+            # and ffmpeg has to be told the size it is actually being fed.
+            grabber = plat.Grabber(wd, ht, fps=self.fps, origin=(x, y))
+            cw, ch = getattr(grabber, "out_w", wd), getattr(grabber, "out_h", ht)
+            proc = popen(self._ffmpeg_args(cw, ch), stdin=subprocess.PIPE,
                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            # the capture is told the rate it is being paced at: on macOS that is what the
-            # capture stream is configured with, and asking it for frames faster than they are
-            # written is wasted work
-            grabber = plat.Grabber(wd, ht, fps=self.fps)
             interval = 1.0 / self.fps
             t0 = time.perf_counter()
             deadline = t0 + self.max_seconds

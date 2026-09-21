@@ -413,16 +413,28 @@ class Grabber:
     ScreenCaptureKit only sends a frame when something changed, so `grab` returning the same
     picture twice is the screen genuinely standing still. The recorder already accounts for
     that: it writes the previous frame again and counts the repeat.
+
+    `width` and `height` are points, the way the picker dragged them. What comes back is
+    `out_w` x `out_h` pixels, which on a Retina display is twice that in each direction - the
+    caller has to be told, because the encoder it feeds needs the real size.
     """
 
-    def __init__(self, width, height, fps=60, cursor=None):
+    def __init__(self, width, height, fps=60, cursor=None, retina=True, origin=None):
         self.w, self.h = int(width), int(height)
         self.fps = max(1, min(120, int(fps)))
+        # The region is given in points because that is what the picker dragged in, but the
+        # recording is made of pixels and a Retina screen has four times as many of them. Capturing
+        # at point resolution halves the linear resolution of every frame before the GIF pipeline
+        # has seen it, and no amount of care downstream gets that back.
+        scale = scale_for((origin or (0, 0)) + (self.w, self.h)) if retina else 1.0
+        self.scale = scale
+        self.out_w = max(2, int(round(self.w * scale)) & ~1)      # x264 wants even dimensions
+        self.out_h = max(2, int(round(self.h * scale)) & ~1)
         self._stream = None
         self._output = None
         self._key = None                       # (x, y, cursor) the current stream is configured for
         self._frame = None
-        self._blank = np.zeros((self.h, self.w, 4), dtype=np.uint8)
+        self._blank = np.zeros((self.out_h, self.out_w, 4), dtype=np.uint8)
         self._lock = threading.Lock()
 
     # -- stream side
@@ -444,7 +456,7 @@ class Grabber:
 
     def _start_once(self, x, y, cursor):
         display, ox, oy = _display_for(x, y, self.w, self.h)
-        cfg = _config(x - ox, y - oy, self.w, self.h, self.w, self.h, cursor)
+        cfg = _config(x - ox, y - oy, self.w, self.h, self.out_w, self.out_h, cursor)
         cfg.setQueueDepth_(8)
         cfg.setMinimumFrameInterval_(CoreMedia.CMTimeMake(1, self.fps))
         stream = SCK.SCStream.alloc().initWithFilter_configuration_delegate_(
@@ -1092,6 +1104,25 @@ def clear_window_shape(hwnd):
         layer = hwnd.contentView().layer()
         if layer is not None:
             layer.setMask_(None)
+        return True
+    except Exception:
+        return False
+
+
+def set_window_frame(hwnd, x, y, width, height):
+    """Place a window exactly where asked, in top-left coordinates.
+
+    Tk cannot be relied on for this. Ask for a full-screen window at +0+0 and it comes back 38
+    points lower, pushed clear of the menu bar - sensible for an ordinary window and wrong for one
+    whose whole job is to cover the screen. The picker's undimmed layer landed there, so the still
+    seen through the selection was offset by exactly the height of the menu bar, which reads as a
+    second copy of it. Setting the frame on the window itself is not subject to that.
+    """
+    if hwnd is None:
+        return False
+    try:
+        cx, cy, cw, ch = _to_cocoa((x, y, width, height))
+        hwnd.setFrame_display_(Quartz.CGRectMake(cx, cy, cw, ch), True)
         return True
     except Exception:
         return False

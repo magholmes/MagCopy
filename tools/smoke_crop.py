@@ -36,7 +36,11 @@ from magcopy.recorder import Recorder
 rec = Recorder((vx + 100, vy + 100, 800, 600), master, fps=25, max_seconds=2, cursor=False)
 rec.start(); rec.thread.join(30)
 check("recorded a master", rec.error is None, str(rec.error))
-print("   master:", optimize.probe(master))
+mw, mh, _, _ = optimize.probe(master)
+# The region is dragged in points and recorded in pixels, which on a Retina display is twice
+# that in each direction - so the master's own size is the thing to measure against, not the
+# number that was asked for. Hardcoding 800x600 here quietly asserted the old, halved capture.
+print("   master: %dx%d from an 800x600 point region" % (mw, mh))
 
 out = os.path.join(tmp, "cropped.gif")
 CROP = (100, 80, 400, 300)      # x, y, w, h in source pixels
@@ -51,8 +55,12 @@ check("still fits the limit", res.fits)
 out2 = os.path.join(tmp, "full.gif")
 res2 = optimize.optimize(master, out2, size_limit_bytes=10_000_000)
 i2 = optimize.gif_info(out2)
-check("uncropped is the full frame", (i2["width"], i2["height"]) == (800, 600),
-      "%dx%d" % (i2["width"], i2["height"]))
+check("uncropped is the full frame", (i2["width"], i2["height"]) == (mw, mh),
+      "%dx%d, master is %dx%d" % (i2["width"], i2["height"], mw, mh))
+check("the master is captured at the screen's real pixels",
+      mw >= 800 * plat.scale_for((vx + 100, vy + 100, 800, 600)) - 2,
+      "%dx%d for an 800x600 point region at %.0fx"
+      % (mw, mh, plat.scale_for((vx + 100, vy + 100, 800, 600))))
 app.quit()
 print("\nCROP", "OK" if ok else "PROBLEM")
 sys.exit(0 if ok else 1)
