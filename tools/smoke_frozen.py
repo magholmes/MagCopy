@@ -65,6 +65,12 @@ if plat.IS_MAC:
 sel = overlay.RegionSelector(root, theme, fonts)      # frozen: live=False
 
 def drive():
+    # The selection is set by hand here, but the picker's own <Motion> binding is live, and the
+    # overlay maps underneath wherever the real pointer happens to be. One stray motion event
+    # while dragging is true drags the selection off to the cursor, and everything sampled after
+    # that is measured in the wrong place. Nothing about the pointer is under test, so it is
+    # taken out for the duration rather than hoped about.
+    sel._motion = lambda e: None
     sel.start, sel.cur, sel.dragging = (SEL[0], SEL[1]), (SEL[0] + SEL[2], SEL[1] + SEL[3]), True
     if plat.IS_MAC:
         res["level_before"] = sel._top_hwnd.level()
@@ -111,6 +117,9 @@ if abs(res.get("after_change", -999) - res.get("inside", 0)) > 12:
     print("FAIL: the picker followed the screen - it is not frozen"); ok = False
 if not rect:
     print("FAIL: no rect"); ok = False
+elif (rect[2], rect[3]) != (SEL[2], SEL[3]):
+    print("FAIL: the selection moved under the test - wanted %dx%d, committed %dx%d"
+          % (SEL[2], SEL[3], rect[2], rect[3])); ok = False
 if plat.IS_MAC:
     if res.get("level_after") != res.get("level_before"):
         print("FAIL: the dim layer lost its window level when the hole was punched (%s -> %s)"
