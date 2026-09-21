@@ -443,7 +443,18 @@ class App:
             self._toast_job = self.root.after(6000, lambda: self._clear_toast())
         except Exception:
             pass
-        if not self.root.winfo_viewable() and error:
+        if not self.root.winfo_viewable():
+            # Nothing on screen to put a toast in, which is the normal state for this app: it
+            # lives in the menu bar and the window is usually closed. A screenshot has no preview
+            # either, so with no confirmation here a capture that worked perfectly is
+            # indistinguishable from one that did nothing at all - the picker flashes, the image
+            # lands on the clipboard, and the only way to find out is to paste somewhere and see.
+            # This used to fire only for errors, which is exactly backwards: an error at least
+            # leaves the shortcut visibly doing nothing, while success leaves no trace whatever.
+            try:
+                self.tray.flash(text)
+            except Exception:
+                pass
             try:
                 self.tray.notify(APP_NAME, text)
             except Exception:

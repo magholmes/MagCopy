@@ -108,6 +108,10 @@ class Tray:
         if self._thread:
             self._thread.join(2)
 
+    def flash(self, text, seconds=2.2):
+        """No menu bar to write in; the balloon is how this is said on Windows."""
+        return self.notify(APP_NAME, text)
+
     def notify(self, title, text):
         """Balloon tip - used for 'saved' and for errors that happen with no window open."""
         if not self._nid:

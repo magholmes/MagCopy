@@ -215,6 +215,8 @@ The hole is `SetWindowRgn` on Windows and a Core Animation mask on macOS, which 
 
 **Screenshots freeze.** That one is deliberate: a menu or a tooltip stays put while you frame it, and what you framed is exactly what you get.
 
+A screenshot has no preview, so the only sign it worked is the confirmation: the window says what it copied, and when the window is closed — which is most of the time — the menu bar says it instead, for a couple of seconds. Without that a capture that worked perfectly looks exactly like one that did nothing, because both leave an empty screen behind.
+
 You aim with the OS crosshair cursor plus a small drawn cross at the pointer. Two earlier attempts are worth not repeating: full-screen guide lines on the canvas cost **24 ms per mouse move**, because moving a line that long forces a repaint — and on a layered window a recomposite — the size of the screen, which is visible lag just hovering around deciding where to drag. Moving thin always-on-top windows instead is fast, but Windows reports a one- or two-pixel layered window as *mapped while compositing nothing*, so the screen showed no pointer at all. A short cross near the cursor costs 0.08 ms and actually appears.
 
 With a **shape** set, the drag is held to that ratio — including when it is clamped at the edge of the desktop, which is exactly where a naive implementation quietly bends it back out of shape. Hold shift to override it for one drag; with no shape set, shift means square.
@@ -316,6 +318,7 @@ are all working, and leaves the same report in `%APPDATA%\MagCopy\selftest.txt`.
 
 - **Windows:** GDI capture cannot see fullscreen-exclusive games or some GPU-composited surfaces; those come out black. macOS does not have this limit.
 - **macOS:** the released build is Apple Silicon only, and needs macOS 12.3 or newer. An Intel Mac needs a build of its own — `tools/fetch_binaries.py` already picks the right ffmpeg for the machine it runs on, so it is one run of `build_mac.sh` on an Intel Mac rather than a porting job.
+- **macOS:** the editor's preview is soft on a Retina display, and cannot be otherwise: Tk draws one image pixel per point, so a full-resolution frame renders at twice the size rather than at twice the detail. It is the preview only — the saved GIF is made from the full-resolution master and is unaffected.
 - **macOS:** not notarised, so the first launch is right-click → Open, and Screen Recording has
   to be granted again after every update — both are the same missing Developer ID certificate,
   and both go away with one. See above.

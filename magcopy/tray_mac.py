@@ -16,9 +16,9 @@ import subprocess
 import sys
 
 import objc
-from AppKit import (NSApp, NSApplicationActivationPolicyAccessory, NSImage, NSMenu, NSMenuItem,
-                    NSStatusBar, NSVariableStatusItemLength)
-from Foundation import NSObject, NSDistributedNotificationCenter, NSSize
+from AppKit import (NSApp, NSApplicationActivationPolicyAccessory, NSImage, NSImageLeft,
+                    NSImageOnly, NSMenu, NSMenuItem, NSStatusBar, NSVariableStatusItemLength)
+from Foundation import NSObject, NSDistributedNotificationCenter, NSSize, NSTimer
 
 from .settings import APP_NAME, SETTINGS_DIR, log_exc
 
@@ -76,6 +76,7 @@ class Tray:
         self.item = None
         self._target = None
         self._menu = None
+        self._flash_job = None
 
     @property
     def ok(self):
@@ -123,6 +124,41 @@ class Tray:
         except Exception:
             pass
         self.item = None
+
+    def flash(self, text, seconds=2.2):
+        """Say it in the menu bar itself, briefly.
+
+        A notification is the obvious way and cannot be relied on: posted through osascript it is
+        attributed to another application, and it is silently dropped if the user has notifications
+        turned off for that one. The menu bar item is ours and is already on screen, so putting the
+        message beside it always works.
+        """
+        button = self.item.button() if self.item is not None else None
+        if button is None:
+            return False
+        try:
+            # A status item button shows its image *or* its title depending on imagePosition, and
+            # the default with an image set is image-only - so setting a title alone changes
+            # nothing visible. It has to be told to make room for both.
+            button.setImagePosition_(NSImageLeft)
+            button.setTitle_(" " + str(text))
+            if self._flash_job is not None:
+                self._flash_job.invalidate()
+            self._flash_job = NSTimer.scheduledTimerWithTimeInterval_repeats_block_(
+                float(seconds), False, lambda t: self._unflash())
+            return True
+        except Exception:
+            log_exc("menu bar flash")
+            return False
+
+    def _unflash(self):
+        self._flash_job = None
+        try:
+            if self.item is not None and self.item.button() is not None:
+                self.item.button().setTitle_("")
+                self.item.button().setImagePosition_(NSImageOnly)
+        except Exception:
+            pass
 
     def notify(self, title, text):
         """A notification, for things that happen with no window open.
