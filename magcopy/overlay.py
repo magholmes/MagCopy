@@ -43,6 +43,7 @@ LIVE_DIM = 0.45                 # window alpha of the dim layer (live mode)
 KEY_COLOR = "#010203"           # colour-key for the chrome layer; nothing real is this colour
 MIN_SIDE = 8                    # smaller than this is treated as a mis-click, not a selection
 IDLE_LIMIT_MS = 45000           # see RegionSelector._claim_screen
+POINTER_POLL_MS = 16            # ~60/s: see RegionSelector._track_pointer
 # Show the selection by cutting a hole in the dim layer rather than moving a bright canvas over
 # it. Both are correct; this one is measurably faster on macOS and is not needed on Windows,
 # where the canvas move is already free and has years of use behind it.
@@ -95,6 +96,8 @@ class RegionSelector:
         self._escape_hotkey = None
         self._escape_requested = False
         self._escape_poll = None
+        self._pointer_poll = None
+        self._last_pointer = None
         self._idle_cancel = None
 
     IDLE_LIMIT_MS = IDLE_LIMIT_MS
@@ -229,15 +232,25 @@ class RegionSelector:
                 plat.set_overlay_styles(self._under_hwnd)
                 plat.set_window_frame(self._under_hwnd, self.vx, self.vy, self.vw, self.vh)
                 plat.order_below(self._under_hwnd, self._top_hwnd)
-            try:
-                self.top.grab_set()        # local: keeps events in this app, does not lock the session
-            except Exception:
-                pass
+            # No Tk grab here, and this is the reason rather than an oversight. Tk implements a
+            # grab on macOS by making the window a modal panel, which carries the modal-panel
+            # window level with it - 8, where this window needs 1000. It does not happen when the
+            # grab is set; it happens the first time an event is processed under it. The dim layer
+            # and the undimmed still beneath it are at the same level by design, so the demotion
+            # puts the dim layer *behind* the still: the screen stops looking dimmed and the
+            # selection rectangle, corner ticks and readout all vanish behind it, the instant the
+            # drag begins. Everything else still works - the drag is tracked and the right region
+            # is captured - which makes it a hard failure to read from the outside.
+            #
+            # The grab buys nothing here anyway. The picker is a full-screen window at the
+            # screen-saver level, so it already receives every click on it, and Escape comes from
+            # a global hotkey rather than from keyboard focus.
             self._escape_hotkey = plat.TransientHotkey("esc", self._escape_pressed)
             if self._escape_hotkey.start():
                 self._escape_poll = self.top.after(40, self._watch_escape)
             else:
                 self._escape_hotkey = None
+            self._pointer_poll = self.top.after(POINTER_POLL_MS, self._track_pointer)
         else:
             try:
                 self.top.grab_set_global()
@@ -246,6 +259,30 @@ class RegionSelector:
         # Last resort, on both. If the picker has been up this long with no mouse movement at all,
         # something is wrong with it and the screen is more useful back than the selection is.
         self._idle_cancel = self.top.after(self.IDLE_LIMIT_MS, self._idle_timeout)
+
+    def _track_pointer(self):
+        """Follow the pointer by asking where it is, rather than by waiting to be told.
+
+        macOS sends mouse-moved events to the key window, and a borderless window - which is what
+        covering the menu bar requires - cannot become key. So the crosshair and the hint never
+        moved: there was no indication of where the pointer was until a drag started, which is
+        precisely when you no longer need one.
+
+        Polling is the unglamorous answer and the right one here. winfo_pointerxy costs nothing
+        and needs no focus, the position only matters when it changes, and once a drag begins
+        <B1-Motion> arrives normally and this steps out of the way.
+        """
+        self._pointer_poll = None
+        try:
+            if not self.dragging:
+                px = self.top.winfo_pointerx() - self.vx
+                py = self.top.winfo_pointery() - self.vy
+                if (px, py) != self._last_pointer:
+                    self._last_pointer = (px, py)
+                    self._draw_idle(px, py)
+            self._pointer_poll = self.top.after(POINTER_POLL_MS, self._track_pointer)
+        except Exception:
+            self._pointer_poll = None
 
     def _escape_pressed(self):
         """From the global hotkey. **Touch nothing belonging to Tk from in here.**
@@ -436,7 +473,7 @@ class RegionSelector:
             except Exception:
                 pass
             self._escape_hotkey = None
-        for attr in ("_idle_cancel", "_escape_poll"):
+        for attr in ("_idle_cancel", "_escape_poll", "_pointer_poll"):
             pending = getattr(self, attr, None)
             if pending is not None:
                 try:

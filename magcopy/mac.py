@@ -22,6 +22,7 @@ outside this module works in points, which is what Tk reports and what the overl
 Captures are the exception: `grab_once(..., retina=True)` asks for the real pixels, because a
 screenshot of a 400x300 selection should be the 800x600 the screen actually has.
 """
+import contextlib
 import ctypes
 import ctypes.util
 import io
@@ -1040,10 +1041,11 @@ def set_window_hole(hwnd, width, height, hole=None):
         layer = view.layer()
         if layer is None:
             return False
-        hwnd.setOpaque_(False)
-        hwnd.setBackgroundColor_(NSColor.clearColor())
-        return _mask_layer(layer, width, height, [(0, 0, width, height)],
-                           hole if (hole and hole[2] > 0 and hole[3] > 0) else None)
+        with _keeping_level(hwnd):
+            hwnd.setOpaque_(False)
+            hwnd.setBackgroundColor_(NSColor.clearColor())
+            return _mask_layer(layer, width, height, [(0, 0, width, height)],
+                               hole if (hole and hole[2] > 0 and hole[3] > 0) else None)
     except Exception:
         return False
 
@@ -1064,11 +1066,35 @@ def set_window_shape(hwnd, width, height, rects):
         layer = view.layer()
         if layer is None:
             return False
-        hwnd.setOpaque_(False)
-        hwnd.setBackgroundColor_(NSColor.clearColor())
-        return _mask_layer(layer, width, height, list(rects or []), None)
+        with _keeping_level(hwnd):
+            hwnd.setOpaque_(False)
+            hwnd.setBackgroundColor_(NSColor.clearColor())
+            return _mask_layer(layer, width, height, list(rects or []), None)
     except Exception:
         return False
+
+
+@contextlib.contextmanager
+def _keeping_level(hwnd):
+    """Put the window back at the level it was at, whatever the body does to it.
+
+    Insurance, not a fix for anything currently known: a window whose level is load-bearing - and
+    the picker's layers are stacked against each other by level - should not be left at the mercy
+    of a call that quietly changes it. Tk does exactly that elsewhere, demoting a grabbed window
+    to the modal-panel level, and the symptom was hard enough to read once.
+    """
+    try:
+        before = hwnd.level()
+    except Exception:
+        before = None
+    try:
+        yield
+    finally:
+        try:
+            if before is not None and hwnd.level() != before:
+                hwnd.setLevel_(before)
+        except Exception:
+            pass
 
 
 def _mask_layer(layer, width, height, rects, hole):

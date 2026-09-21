@@ -93,7 +93,14 @@ t0 = time.perf_counter()
 rect = sel.run()                     # blocks in wait_window until something cancels it
 elapsed = time.perf_counter() - t0
 
-check("the picker does not take a global grab", "global" not in str(state.get("grab", "")),
+# Not "no *global* grab" - no grab at all. Tk implements a grab on macOS by making the window a
+# modal panel, and the modal-panel window level (8) comes with it, applied the first time an event
+# is processed under the grab rather than when it is set. The picker's two layers are stacked
+# against each other by level, so the demotion drops the dim layer behind the undimmed still and
+# the rectangle, ticks and readout all disappear mid-drag while everything else goes on working.
+# A grab taken here also cannot be caught by driving the picker's methods directly, which is why
+# this checks for the grab rather than for its consequence.
+check("the picker takes no Tk grab at all", not str(state.get("grab", "")).strip(),
       "grab was %r" % state.get("grab"))
 check("it sits above everything (real window level)", (state.get("level") or 0) >= 1000,
       "level %s" % state.get("level"))

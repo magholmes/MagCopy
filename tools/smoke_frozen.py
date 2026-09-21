@@ -21,13 +21,40 @@ back.configure(bg="#FFFFFF"); back.attributes("-topmost", True); back.deiconify(
 for _ in range(25): root.update(); time.sleep(0.01)
 time.sleep(0.3); root.update()
 
+def _front_to_back(sel):
+    """Which of the picker's two layers is in front, as the window server sees it."""
+    import Quartz
+    ours = {}
+    if sel._top_hwnd is not None:
+        ours[int(sel._top_hwnd.windowNumber())] = "dim"
+    if sel._under_hwnd is not None:
+        ours[int(sel._under_hwnd.windowNumber())] = "still"
+    out = []
+    for w in Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID) or []:
+        name = ours.get(int(w.get("kCGWindowNumber", 0)))
+        if name:
+            out.append(name)
+    return out
+
+
 SEL = (300, 280, 520, 360)          # selector-local, well inside the white panel
 res = {}
 sel = overlay.RegionSelector(root, theme, fonts)      # frozen: live=False
 
 def drive():
     sel.start, sel.cur, sel.dragging = (SEL[0], SEL[1]), (SEL[0] + SEL[2], SEL[1] + SEL[3]), True
+    if plat.IS_MAC:
+        res["level_before"] = sel._top_hwnd.level()
     sel._redraw(); sel.top.update_idletasks(); root.update()
+    if plat.IS_MAC:
+        # The dim layer and the undimmed still beneath it are stacked by level, so the dim layer
+        # losing its level puts it *behind* the still - the screen stops looking dimmed and the
+        # rectangle, ticks and readout all vanish, from the first redraw onward. Everything else
+        # goes on working, which makes it invisible to any test that only checks the rect.
+        res["level_after"] = sel._top_hwnd.level()
+        res["under_level"] = sel._under_hwnd.level() if sel._under_hwnd else None
+        res["order"] = _front_to_back(sel)
     time.sleep(0.35); root.update()
     # sample well inside the selection, and a patch of dim that the selection does not reach
     res["inside"] = plat.grab_once(vx + SEL[0] + 80, vy + SEL[1] + 80, 120, 80)[:, :, 2::-1].mean()
@@ -53,6 +80,16 @@ if abs(res.get("after_change", -999) - res.get("inside", 0)) > 12:
     print("FAIL: the picker followed the screen - it is not frozen"); ok = False
 if not rect:
     print("FAIL: no rect"); ok = False
+if plat.IS_MAC:
+    if res.get("level_after") != res.get("level_before"):
+        print("FAIL: the dim layer lost its window level when the hole was punched (%s -> %s)"
+              % (res.get("level_before"), res.get("level_after"))); ok = False
+    if res.get("order") != ["dim", "still"]:
+        print("FAIL: the dim layer is not in front of the still - order was %r"
+              % (res.get("order"),)); ok = False
+    else:
+        print("layer order during the drag   : %s (dim in front, as it must be)"
+              % " then ".join(res["order"]))
 print("\nFROZEN PICKER", "OK" if ok else "PROBLEM")
 root.destroy()
 sys.exit(0 if ok else 1)
