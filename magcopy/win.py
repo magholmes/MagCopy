@@ -154,8 +154,16 @@ class Grabber:
     buffer, which is what makes a 30 fps recording loop affordable. Returns BGRA, top-down.
     """
 
-    def __init__(self, width, height):
+    def __init__(self, width, height, fps=None, cursor=None, retina=True, origin=None):
+        # fps, cursor, retina and origin exist for the macOS grabber, which has to open a stream
+        # at a frame rate and work out a Retina scale factor from where the region sits. None of
+        # that applies here: the process is DPI-aware, so a point is a pixel and a BitBlt needs no
+        # warning about how fast it will be called. They are accepted and ignored so that
+        # recorder.py can call one constructor on both platforms.
+        del fps, cursor, retina, origin
         self.w, self.h = int(width), int(height)
+        self.out_w, self.out_h = self.w, self.h      # what the encoder is fed; no scaling here
+        self.scale = 1.0
         self.src = g32.CreateDCW("DISPLAY", None, None, None)
         self.mem = g32.CreateCompatibleDC(self.src)
         self.bmp = g32.CreateCompatibleBitmap(self.src, self.w, self.h)
@@ -224,7 +232,11 @@ class Grabber:
         self.close()
 
 
-def grab_once(x, y, width, height, cursor=False):
+def grab_once(x, y, width, height, cursor=False, retina=True):
+    # retina is meaningful only on macOS, where a point is not a pixel. This process is
+    # DPI-aware, so a BitBlt already reads the screen's real pixels; the argument is accepted so
+    # that one call site works on both platforms.
+    del retina
     with Grabber(width, height) as gr:
         return gr.grab(x, y, cursor).copy()
 
