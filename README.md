@@ -60,6 +60,15 @@ if the ask is refused, rather than leaving you to work it out from a blank image
 There is no second permission. Accessibility is what most apps need for global shortcuts;
 MagCopy's go through Carbon's `RegisterEventHotKey`, which does not need it.
 
+**After an update, you have to grant it again**, and the way it fails is confusing enough to be
+worth spelling out: MagCopy appears in the Screen Recording list, switched on, and is refused
+anyway. Nothing is broken and it is not something you did. macOS remembers the permission against
+the application's code signature, and without a Developer ID certificate every build is signed
+afresh — so as far as that list is concerned an updated MagCopy is a different application, and
+the entry you can see belongs to the version you replaced. Select MagCopy in the list, remove it
+with the **−** button, then reopen the app and allow it. MagCopy says all this in a panel if it
+catches the situation. A Developer ID would fix it properly, along with Gatekeeper; see below.
+
 It lives in the menu bar and has no Dock icon.
 
 There is also a single-file `MagCopy.exe` on the [releases page](https://github.com/magholmes/MagCopy/releases/latest)
@@ -307,7 +316,9 @@ are all working, and leaves the same report in `%APPDATA%\MagCopy\selftest.txt`.
 
 - **Windows:** GDI capture cannot see fullscreen-exclusive games or some GPU-composited surfaces; those come out black. macOS does not have this limit.
 - **macOS:** the released build is Apple Silicon only, and needs macOS 12.3 or newer. An Intel Mac needs a build of its own — `tools/fetch_binaries.py` already picks the right ffmpeg for the machine it runs on, so it is one run of `build_mac.sh` on an Intel Mac rather than a porting job.
-- **macOS:** not notarised, so the first launch is right-click → Open. See above.
+- **macOS:** not notarised, so the first launch is right-click → Open, and Screen Recording has
+  to be granted again after every update — both are the same missing Developer ID certificate,
+  and both go away with one. See above.
 - A shortcut already owned by another application cannot be registered. MagCopy says so in the window and from the tray or menu bar, and keeps the one that was working. Pick another.
 - Long recordings at high resolution take a while to encode. The status line tells you what it is trying.
 

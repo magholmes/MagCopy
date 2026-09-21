@@ -139,21 +139,39 @@ def _new_root():
     return root
 
 
-def _permission_panel():
+def _permission_panel(seen_before=False):
     """Name the permission, say what it is for, and open the pane that grants it.
 
     Without this the first run of a denied build is a screenshot of an empty desktop and no
     error anywhere - the single most likely way a working macOS build looks broken.
+
+    `seen_before` is the case that reads as a bug and is not one. macOS remembers the permission
+    against the application's code signature, and without a Developer ID certificate every build
+    is signed afresh, so an updated MagCopy is a different application as far as that list is
+    concerned. The old entry stays, still switched on, and the new one is refused - which looks
+    exactly like the setting being ignored. Telling someone to switch on a thing that is visibly
+    already on is not help, so say what actually has to happen instead.
     """
     try:
         from tkinter import messagebox
-        go = messagebox.askretrycancel(
-            "%s needs permission" % APP_NAME,
-            "%s cannot see the screen yet.\n\n"
-            "System Settings -> Privacy & Security -> Screen Recording, and switch %s on. "
-            "macOS only asks once, so the switch is the way back if the prompt has gone.\n\n"
-            "Screenshots and recordings come out blank until it is on.\n\n"
-            "Open that pane now?" % (APP_NAME, APP_NAME))
+        if seen_before:
+            body = ("%s is in the Screen Recording list and switched on, and is still being "
+                    "refused.\n\n"
+                    "That is expected after an update, and it is not something you did. macOS "
+                    "remembers the permission against the app's signature, and an updated %s is "
+                    "signed afresh - so the entry you can see belongs to the previous version.\n\n"
+                    "In System Settings -> Privacy & Security -> Screen Recording:\n"
+                    "   1. select %s in the list\n"
+                    "   2. click the - button to remove it\n"
+                    "   3. quit and reopen %s, and allow it when asked\n\n"
+                    "Open that pane now?" % (APP_NAME, APP_NAME, APP_NAME, APP_NAME))
+        else:
+            body = ("%s cannot see the screen yet.\n\n"
+                    "System Settings -> Privacy & Security -> Screen Recording, and switch %s on. "
+                    "macOS only asks once, so the switch is the way back if the prompt has gone.\n\n"
+                    "Screenshots and recordings come out blank until it is on.\n\n"
+                    "Open that pane now?" % (APP_NAME, APP_NAME))
+        go = messagebox.askretrycancel("%s needs permission" % APP_NAME, body)
         if go:
             plat.open_privacy_pane("ScreenCapture")
     except Exception:
@@ -178,9 +196,11 @@ def main(argv=None):
         # A denied Screen Recording permission is the one failure that looks like a working app:
         # ScreenCaptureKit keeps answering and returns the desktop with every other window
         # missing. Ask before anything else, and say where the switch is if the ask is refused.
-        plat.request_screen_recording()
+        # Ask first. If macOS does not even show its own dialog, it has asked before and this
+        # build is being refused against a remembered answer - which is the updated-app case.
+        asked = plat.request_screen_recording()
         if not plat.has_screen_recording() and "--no-permission-prompt" not in argv:
-            _permission_panel()
+            _permission_panel(seen_before=not asked)
 
     if "--selftest" in argv:
         return selftest(argv)
