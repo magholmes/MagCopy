@@ -27,6 +27,12 @@ else:
 
 
 # ----------------------------------------------------------------------------- fallbacks
+if not hasattr(impl, "combo_down"):
+    def combo_down(combo=None):
+        """No way to ask here, so say the keyboard is clear and arm immediately."""
+        return False
+
+
 if not IS_MAC:
     def has_screen_recording():
         """Windows needs no permission to read the screen."""

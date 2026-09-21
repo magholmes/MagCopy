@@ -75,6 +75,8 @@ def _declare():
     u32.GetWindowRect.argtypes = [w.HWND, ctypes.c_void_p]
     u32.SetLayeredWindowAttributes.argtypes = [w.HWND, w.COLORREF, ctypes.c_ubyte, w.DWORD]
     u32.SetLayeredWindowAttributes.restype = w.BOOL
+    u32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+    u32.GetAsyncKeyState.restype = ctypes.c_short
     u32.AllowSetForegroundWindow.argtypes = [w.DWORD]
     u32.AllowSetForegroundWindow.restype = w.BOOL
     u32.RegisterHotKey.argtypes = [w.HWND, ctypes.c_int, w.UINT, w.UINT]
@@ -395,6 +397,27 @@ def format_hotkey(mods, vk):
     else:
         parts.append("0x%02X" % vk)
     return "+".join(parts)
+
+
+MODIFIER_VKS = (0x11, 0x10, 0x12, 0x5B, 0x5C)      # ctrl, shift, alt, left win, right win
+
+
+def combo_down(combo=None):
+    """True while any modifier - or `combo`'s own key - is still physically held.
+
+    RegisterHotKey matches the key going down, and a held key goes down again on every auto-repeat.
+    So a shortcut registered while the user is still holding the keys they just pressed fires on
+    the next repeat, about a quarter of a second later: you press Ctrl+Space to bind it and it
+    runs. Nothing can be armed until the keyboard is clear, and this is how to ask.
+    """
+    vks = list(MODIFIER_VKS)
+    parsed = parse_hotkey(combo) if combo else None
+    if parsed:
+        vks.append(parsed[1])
+    try:
+        return any(u32.GetAsyncKeyState(int(v)) & 0x8000 for v in vks)
+    except Exception:
+        return False
 
 
 class HotkeyManager:

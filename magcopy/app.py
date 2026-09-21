@@ -68,6 +68,8 @@ class App:
         self.recorder = None
         self.record_frame = None
         self.record_esc = None            # global Escape, alive only while recording
+        self._hotkeys_held = False        # true while a shortcut field is being typed into
+        self._pending_hotkey = None       # (which, key, previous, wanted), armed once keys are up
         self.editor = None
         self.hwnd = None
         self._toast = None
@@ -143,6 +145,53 @@ class App:
         except Exception:
             pass
 
+    def _capturing(self, active, combo=None):
+        """A shortcut field is being typed into: take the live shortcuts out of the way.
+
+        Otherwise the combination you are in the middle of choosing does its job instead of being
+        recorded. Nothing is unregistered permanently - they come back the moment the keyboard is
+        clear, which is also the moment it is safe to arm the new one.
+        """
+        if active:
+            self._hotkeys_held = True
+            try:
+                self.hotkeys.rebind([])
+            except Exception:
+                log_exc("suspend hotkeys")
+        else:
+            self._arm_when_released(combo)
+
+    def _arm_when_released(self, combo=None, tries=0):
+        """Wait for every key to come up, then register.
+
+        RegisterHotKey matches a key going down, and a held key goes down again on every
+        auto-repeat. Arming while the user is still holding what they just pressed means the
+        shortcut fires about a quarter of a second later - which is to say, while they are still
+        pressing it. Half a second of patience costs nothing and there is a ceiling in case a key
+        is genuinely stuck.
+        """
+        # The field reports the end of capture before it hands over the new value, so on the
+        # first pass the combination is only known through what is pending.
+        if combo is None and self._pending_hotkey:
+            combo = self._pending_hotkey[3]
+        if plat.combo_down(combo) and tries < 40:
+            self.root.after(50, lambda: self._arm_when_released(combo, tries + 1))
+            return
+        self._hotkeys_held = False
+        pending = self._pending_hotkey
+        self._pending_hotkey = None
+        failed = self._bind_hotkeys()
+        if not pending:
+            return
+        which, key, previous, wanted = pending
+        if failed:
+            self.settings[key] = previous                 # roll back to something that works
+            self._bind_hotkeys()
+            (self.field_shot if which == "shot" else self.field_gif).set(previous)
+        else:
+            save(self.settings)
+            self.toast("shortcut set to %s" % wanted)
+
     def _set_hotkey(self, which, combo):
         key = "hotkey_shot" if which == "shot" else "hotkey_gif"
         other = "hotkey_gif" if which == "shot" else "hotkey_shot"
@@ -150,16 +199,12 @@ class App:
             self.toast("that shortcut is already used by the other action", error=True)
             (self.field_shot if which == "shot" else self.field_gif).set(self.settings[key])
             return
-        previous = self.settings[key]
+        # The field has already told us capture ended, so arming is pending. Hand it the change to
+        # make when it happens rather than registering anything now.
+        self._pending_hotkey = (which, key, self.settings[key], combo)
         self.settings[key] = combo
-        failed = self._bind_hotkeys()
-        if failed:
-            self.settings[key] = previous                 # roll back to something that works
-            self._bind_hotkeys()
-            (self.field_shot if which == "shot" else self.field_gif).set(previous)
-        else:
-            save(self.settings)
-            self.toast("shortcut set to %s" % combo)
+        if not self._hotkeys_held:
+            self._arm_when_released(combo)
 
     # ----------------------------------------------------------------- flows
     def _hide_for_capture(self):
@@ -610,7 +655,8 @@ class App:
             go = TextLink(left, "run now", run, F)
             go.pack(anchor="w", pady=(S(4), 0))
             T.add(go)
-            field = HotkeyField(row, F, field_value, on_set, self.scale)
+            field = HotkeyField(row, F, field_value, on_set, self.scale,
+                                on_capture=self._capturing)
             field.pack(side="right", padx=(S(12), 0))
             T.add(field)
             return field

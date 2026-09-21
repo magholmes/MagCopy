@@ -489,10 +489,13 @@ class HotkeyField(tk.Canvas):
              "minus": "-", "equal": "=", "bracketleft": "[", "bracketright": "]", "semicolon": ";",
              "apostrophe": "'", "comma": ",", "period": ".", "slash": "/", "backslash": "\\", "grave": "`"}
 
-    def __init__(self, parent, fonts, value, command, scale=1.0, width=170, **kw):
+    def __init__(self, parent, fonts, value, command, scale=1.0, width=170, on_capture=None, **kw):
         super().__init__(parent, bd=0, highlightthickness=0, height=int(28 * scale),
                          width=int(width * scale), **kw)
         self.fonts, self.value, self.command, self.s = fonts, value, command, scale
+        # Told when capture starts and stops, so the owner can take the live shortcuts out of the
+        # way. Without that, pressing the combination you are trying to bind runs it instead.
+        self.on_capture = on_capture or (lambda active: None)
         self.c, self.hover, self.capturing = None, False, False
         self._mods = set()
         self.configure(cursor="hand2")
@@ -504,16 +507,20 @@ class HotkeyField(tk.Canvas):
         self.bind("<FocusOut>", lambda e: self.cancel())
 
     def start_capture(self):
+        if self.capturing:
+            return
         self.capturing = True
         self._mods = set()
         self.focus_set()
         self.draw()
+        self.on_capture(True)
 
     def cancel(self):
         if self.capturing:
             self.capturing = False
             self._mods = set()
             self.draw()
+            self.on_capture(False)
 
     def set(self, value):
         self.value = value
@@ -558,6 +565,7 @@ class HotkeyField(tk.Canvas):
         self._mods = set()
         self.value = combo
         self.draw()
+        self.on_capture(False)
         self.command(combo)
         return "break"
 
