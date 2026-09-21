@@ -31,7 +31,7 @@ from .editor import GifEditor
 from .optimize import gif_info
 from .recorder import RecordFrame, Recorder
 from .settings import (APP_NAME, APP_VERSION, ASPECT_RATIOS, DEFAULTS, RES_DIR, APP_DIR, SETTINGS_DIR,
-                       get_autostart, is_first_run, load, log_exc, save, save_dir, set_autostart,
+                       get_autostart, is_first_run, load, log_error, log_exc, save, save_dir, set_autostart,
                        capture_path)
 from .theme import (Button, DotToggle, Fonts, Hairline, HotkeyField, IconButton, Label, Panel,
                     Pills, THEME_ORDER, Theme, TextLink, register_fonts)
@@ -175,12 +175,18 @@ class App:
             # `busy` is cleared in the finally below, so this only ever means a capture really is
             # in progress. It is worth being sure of: a version of this that could leave the flag
             # set made every shortcut afterwards do nothing, with no way to tell why.
+            log_error("screenshot", "ignored: a capture is already in progress")
             return
         self.busy = True
         was_visible = self._hide_for_capture()
         try:
             sel = overlay.selector_for(self.root, self.theme, self.fonts, self.settings)
             rect = sel.run()
+            # A screenshot has no preview by design, so when it goes wrong there is nothing at all
+            # to see - which makes "it did not work" impossible to tell apart from "it worked and
+            # you are looking at the wrong thing". One line per attempt costs nothing and turns a
+            # report into a diagnosis.
+            log_error("screenshot", "picker returned %r" % (rect,))
             if not rect:
                 return
             x, y, wd, ht = rect
@@ -189,6 +195,8 @@ class App:
             rgb = np.asarray(crop, dtype=np.uint8)
             bgra = np.dstack([rgb[:, :, ::-1], np.full(rgb.shape[:2], 255, np.uint8)])
             ok = plat.set_clipboard_image(bgra)
+            log_error("screenshot", "cropped %dx%d, clipboard %s"
+                      % (crop.size[0], crop.size[1], "ok" if ok else "REFUSED"))
             note = "%d × %d copied" % crop.size      # the real pixels, which may be 2x the drag
             if self.settings["save_screenshots"]:
                 path = capture_path(save_dir(self.settings), "png")
