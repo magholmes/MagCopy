@@ -40,6 +40,28 @@ def _front_to_back(sel):
 
 SEL = (300, 280, 520, 360)          # selector-local, well inside the white panel
 res = {}
+
+# Tk maps a full-screen window 38 points low, clear of the menu bar, and only then can it be
+# moved - so a layer that is visible while it is being placed is seen in the wrong place for one
+# frame. For the undimmed still that means the captured menu bar appearing below the real one and
+# the whole picture looking pushed down: a flash at the very start of every screenshot. The
+# invariant is that a layer is never visible until it has been placed, and it is checked here by
+# watching the placement itself, because one frame is too short to catch by sampling the screen.
+_seen_early = []
+if plat.IS_MAC:
+    _real_place = plat.place_overlay
+
+    def _watched_place(hwnd, x, y, w, h, click_through=False, alpha=1.0):
+        try:
+            if hwnd.alphaValue() > 0.01:
+                f = hwnd.frame()
+                _seen_early.append((int(f.origin.x), int(f.origin.y), round(hwnd.alphaValue(), 2)))
+        except Exception:
+            pass
+        return _real_place(hwnd, x, y, w, h, click_through, alpha)
+
+    plat.place_overlay = _watched_place
+    overlay.plat.place_overlay = _watched_place
 sel = overlay.RegionSelector(root, theme, fonts)      # frozen: live=False
 
 def drive():
@@ -93,6 +115,9 @@ if plat.IS_MAC:
     if res.get("level_after") != res.get("level_before"):
         print("FAIL: the dim layer lost its window level when the hole was punched (%s -> %s)"
               % (res.get("level_before"), res.get("level_after"))); ok = False
+    if _seen_early:
+        print("FAIL: a layer was already visible when it was placed %r - it will be seen at the "
+              "position Tk chose for one frame" % (_seen_early,)); ok = False
     want = (0, 0, sel.vw, sel.vh)
     for name, frame in (res.get("frames") or {}).items():
         if frame != want:

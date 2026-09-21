@@ -357,6 +357,13 @@ class RegionSelector:
         cv.pack(fill="both", expand=True)
         self._bright_photo = ImageTk.PhotoImage(self.bright)
         cv.create_image(0, 0, image=self._bright_photo, anchor="nw")
+        # Invisible *before* it is mapped, not after. place_overlay can only turn a window down
+        # once it exists, and by then deiconify has already presented it at the position Tk chose
+        # - 38 points low, clear of the menu bar - so the still is seen shifted down by exactly
+        # the height of the menu bar for one frame. That is the top bar appearing to duplicate
+        # and the screen appearing to jump. Tk's own -alpha is set before the window is mapped at
+        # all, so there is no frame in which it can be seen anywhere.
+        self.under.attributes("-alpha", 0.0)
         self.under.deiconify()
         self.under.update_idletasks()
         try:
@@ -365,6 +372,7 @@ class RegionSelector:
                                click_through=True)
         except Exception:
             self._under_hwnd = None
+        self.under.attributes("-alpha", 1.0)
 
     def _build_chrome_layer(self):
         """The click-through layer the live mode draws on, so its lines are not dimmed.
@@ -389,6 +397,7 @@ class RegionSelector:
         self.chrome_cv = tk.Canvas(self.chrome, width=self.vw, height=self.vh, bd=0,
                                    highlightthickness=0, bg=KEY_COLOR)
         self.chrome_cv.pack(fill="both", expand=True)
+        self.chrome.attributes("-alpha", 0.0)   # see _build_bright_layer: placed before it is seen
         self.chrome.deiconify()
         self.chrome.update_idletasks()        # the wrapper window must exist before it is styled
         try:                                  # keep_layer: do not clobber the colour key with alpha
@@ -400,6 +409,7 @@ class RegionSelector:
                                click_through=True)
             self._chrome_passthrough = bool(
                 plat.set_click_through(self._chrome_hwnd, True, keep_layer=True))
+            self.chrome.attributes("-alpha", 1.0)
             if not self._chrome_keyed:
                 # no colour key: the mask is the only thing that stops this layer covering the
                 # screen in a flat sheet of KEY_COLOR, so the layer is only usable if it works
