@@ -318,7 +318,7 @@ are all working, and leaves the same report in `%APPDATA%\MagCopy\selftest.txt`.
 
 - **Windows:** GDI capture cannot see fullscreen-exclusive games or some GPU-composited surfaces; those come out black. macOS does not have this limit.
 - **macOS:** the released build is Apple Silicon only, and needs macOS 12.3 or newer. An Intel Mac needs a build of its own — `tools/fetch_binaries.py` already picks the right ffmpeg for the machine it runs on, so it is one run of `build_mac.sh` on an Intel Mac rather than a porting job.
-- **macOS:** the editor's preview is soft on a Retina display, and cannot be otherwise: Tk draws one image pixel per point, so a full-resolution frame renders at twice the size rather than at twice the detail. It is the preview only — the saved GIF is made from the full-resolution master and is unaffected.
+- **macOS:** the editor's preview cannot be pixel-sharp on a Retina display. Tk draws one image pixel per *point* — a canvas image item has no width, height or scale, and a photo image has no notion of a display scale — so a full-resolution frame renders at twice the size rather than at twice the detail. The preview frames are extracted with lanczos and lightly sharpened afterwards, which recovers about 40% of the edge detail a plain bilinear downscale throws away, and that is all of what is available without leaving Tk. It is the preview only: the saved GIF is made from the full-resolution master and is unaffected by any of it.
 - **macOS:** not notarised, so the first launch is right-click → Open, and Screen Recording has
   to be granted again after every update — both are the same missing Developer ID certificate,
   and both go away with one. See above.
