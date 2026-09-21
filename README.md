@@ -13,9 +13,9 @@ could not tell each other's output apart.
     <img alt="Download MagCopy for Windows"
          src="https://img.shields.io/badge/download-MagCopy--windows.zip-5E6DEE?style=for-the-badge&labelColor=16171E&color=5E6DEE&logo=windows&logoColor=white"></a>
   &nbsp;
-  <a href="https://github.com/magholmes/MagCopy/releases/latest/download/MagCopy-macos.zip">
+  <a href="https://github.com/magholmes/MagCopy/releases/latest/download/MagCopy-macos.dmg">
     <img alt="Download MagCopy for macOS"
-         src="https://img.shields.io/badge/download-MagCopy--macos.zip-342E38?style=for-the-badge&labelColor=16171E&color=342E38&logo=apple&logoColor=white"></a>
+         src="https://img.shields.io/badge/download-MagCopy--macos.dmg-342E38?style=for-the-badge&labelColor=16171E&color=342E38&logo=apple&logoColor=white"></a>
   &nbsp;
   <a href="https://github.com/magholmes/MagCopy/releases/latest">
     <img alt="Latest version"
@@ -41,15 +41,26 @@ program — you just do not get the shortcuts.
 
 Apple Silicon, macOS 12.3 or newer.
 
-1. Unzip it and drag **MagCopy** to your Applications folder.
-2. **Right-click it and choose Open**, then Open again. Only the first time.
-3. Say yes to **Screen Recording**, which is the one permission it needs.
+**The easy way — one line, nothing to click through:**
 
-Step 2 is not optional, and it is worth saying why rather than letting it look broken: the app is
-not notarised, and macOS refuses to launch a downloaded app that is not — outright, with no "open
-anyway" button behind a warning the way SmartScreen has one. Right-click → Open is the documented
-way through and only has to be done once. Notarising properly needs a Developer ID certificate at
-100 USD a year, which this does not have.
+```bash
+curl -fsSL https://raw.githubusercontent.com/magholmes/MagCopy/main/install-macos.sh | bash
+```
+
+That downloads it, puts it in `/Applications`, and starts it. No administrator rights, and
+nothing written anywhere else.
+
+It is worth knowing *why* this is easier rather than just shorter. macOS refuses to open a
+downloaded app that is not notarised — outright, not behind an "open anyway" button the way
+SmartScreen has one — and the mark that makes it "downloaded" is applied by the **browser**,
+not by the file. Nothing fetched by that command is marked, so the app simply opens. Same
+application, same signature; only the route differs.
+
+**Or the ordinary way:** download **MagCopy-macos.dmg**, open it, drag MagCopy onto the
+Applications shortcut inside. Then **right-click it and choose Open**, and Open again — once,
+because of the paragraph above. After that it behaves like anything else.
+
+Either way, say yes to **Screen Recording** when it asks. It is the only permission it needs.
 
 Step 3 decides whether it works at all. **Without Screen Recording, MagCopy does not fail — it
 captures an empty desktop**, because that is what macOS hands back instead of an error. If your
@@ -274,8 +285,10 @@ python tools/make_icon.py icon_source.png --icns
 ./build_mac.sh
 ```
 
-That produces `dist/MagCopy.app` and a zipped `dist/MagCopy-macos.zip` — about 120 MB, of which
-ffmpeg and gifski are 96. Settings go to `~/Library/Application Support/MagCopy/`.
+That produces `dist/MagCopy.app`, a zipped `dist/MagCopy-macos.zip` and `dist/MagCopy-macos.dmg`
+— about 120 MB unpacked, of which ffmpeg and gifski are 96. Settings go to
+`~/Library/Application Support/MagCopy/`. The zip is what `install-macos.sh` fetches, because it
+can be unpacked without mounting anything; the .dmg is for people who would rather drag an icon.
 
 Two things it does that are not obvious. It ad-hoc signs the bundle (`codesign -s -`) every time,
 which is not notarising but matters anyway: macOS keys the Screen Recording grant to the bundle's

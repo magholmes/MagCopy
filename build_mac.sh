@@ -90,4 +90,17 @@ if [ "${1:-}" != "--no-zip" ]; then
   # plain zip flattens into something that will not launch.
   ( cd "$ROOT/dist" && ditto -c -k --sequesterRsrc --keepParent MagCopy.app "$ZIP" )
   echo "built $ZIP  ($(du -sh "$ZIP" | cut -f1))"
+
+  # A .dmg as well, because it is the thing a Mac user expects to download: one file, open it,
+  # drag the app onto the Applications shortcut sitting next to it. The zip stays for the install
+  # script, which wants something it can unpack without mounting anything.
+  DMG="$ROOT/dist/MagCopy-macos.dmg"
+  STAGE="$ROOT/build/dmg"
+  rm -rf "$STAGE" "$DMG"
+  mkdir -p "$STAGE"
+  ditto "$APP" "$STAGE/MagCopy.app"
+  ln -s /Applications "$STAGE/Applications"
+  hdiutil create -volname "MagCopy" -srcfolder "$STAGE" -ov -format UDZO -quiet "$DMG"
+  rm -rf "$STAGE"
+  echo "built $DMG  ($(du -sh "$DMG" | cut -f1))"
 fi
