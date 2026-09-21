@@ -26,16 +26,17 @@ Those links always serve the newest build.
 
 ### Windows
 
-1. Right-click the zip → **Extract All**.
-2. Open the `MagCopy` folder it makes and double-click **`Install MagCopy.bat`**.
+Inside the zip is one file: **`MagCopy-Setup.exe`**. Open it and MagCopy installs.
 
-That is all of it. The installer copies MagCopy into your own user folder, adds a Start menu and
-desktop shortcut, and starts it — no administrator rights, no setup questions, and nothing written
-outside your account. It lives in the notification area, by the clock. `Uninstall MagCopy.bat` in
-the installed folder puts everything back; your saved captures are never touched.
+No administrator rights, no setup questions, nothing written outside your own account. You get a
+Start menu shortcut, the offer of a desktop one, and the program running — it lives in the
+notification area, by the clock. It uninstalls from **Add or remove programs** like anything else,
+and your saved captures are never touched.
 
-If you would rather not install anything, double-click `MagCopy.exe` where it sits. Identical
-program — you just do not get the shortcuts.
+There is also a portable single-file `MagCopy.exe` on the
+[releases page](https://github.com/magholmes/MagCopy/releases/latest) for anyone who wants no
+installer at all. **Chrome is much more likely to block that one**, for reasons worth knowing
+about.
 
 ### macOS
 
@@ -82,10 +83,6 @@ catches the situation. A Developer ID would fix it properly, along with Gatekeep
 
 It lives in the menu bar and has no Dock icon.
 
-There is also a single-file `MagCopy.exe` on the [releases page](https://github.com/magholmes/MagCopy/releases/latest)
-if you want one file and nothing else. **Chrome is much more likely to block that one**, for
-reasons worth knowing about.
-
 <details>
 <summary><b>Why a browser or scanner may call this a virus</b></summary>
 
@@ -95,8 +92,9 @@ It is a false positive, and three things cause it.
 Python runtime and a pile of DLLs, writes them into a temporary directory at startup and runs them
 from there. That is structurally what a dropper does, and a great deal of real malware is built
 with PyInstaller, so scanners match the bootloader itself. This is by far the biggest cause — and
-it is why the download above is a zipped folder instead. Nothing self-extracts, and a `.zip` is
-not a directly executable download, so neither trigger applies.
+it is why the download above is an installer instead. What it carries is an ordinary folder of
+files that never self-extracts, the Inno Setup stub around it is one of the most widely seen
+executables on Windows, and a `.zip` is not a directly executable download.
 
 **Nothing is signed.** There is no code-signing certificate, so Windows has no reputation for the
 file. A new, unsigned executable that few people have downloaded scores badly by construction.
