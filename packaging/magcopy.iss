@@ -67,6 +67,20 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{app}\MagCopy.exe"; Description: "Start MagCopy"; Flags: nowait postinstall skipifsilent
 
+[Code]
+// MagCopy sits in the tray with no window that answers a close request, so the Restart Manager
+// route CloseApplications relies on cannot shut it. Left to that, an upgrade over a running copy
+// stops at "files in use" - or, run silently, just gives up (exit code 5). Stop it outright first;
+// it is about to be replaced, and it keeps no state that a kill could lose.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  R: Integer;
+begin
+  Exec(ExpandConstant('{sys}') + '\taskkill.exe', '/IM MagCopy.exe /F', '', SW_HIDE, ewWaitUntilTerminated, R);
+  Sleep(400);
+  Result := '';
+end;
+
 [UninstallRun]
 ; Settings live in %APPDATA%\MagCopy and saved captures live in Pictures. Neither is touched.
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM MagCopy.exe /F"; Flags: runhidden; RunOnceId: "StopMagCopy"
