@@ -43,11 +43,17 @@ Say yes to **Screen Recording** — the only permission it needs. Refuse it and 
 
 Lives in the menu bar or the tray. No Dock icon.
 
+## Updating
+
+**check for updates** next to the version in the window. It asks GitHub, tells you either way, and if there is a newer one the link turns into **update to 1.8** — click it and MagCopy downloads the release, installs it and restarts itself.
+
+It only ever moves when you click it. Running from source, or on macOS, it opens the download page instead.
+
 ## The floating controller
 
 Off by default; switch it on under **controller** in the window.
 
-A small capsule that sits above everything. Hover and it opens into two buttons — a frame for a screenshot, a red dot for a recording — and either one drops you straight into the region picker, same as the shortcut. Drag it anywhere by its grip; where you leave it is where it stays.
+A small capsule that sits above everything. Hover and it opens into two buttons — a frame for a screenshot, a red dot for a recording — and either one drops you straight into the region picker, same as the shortcut. Drag it by its grip and it parks against whichever screen edge you dropped it nearest, opening inward from there — the edge it sits on is the one that never moves.
 
 It never lands in its own captures: it goes off screen the moment a picker opens and comes back when the capture is done, including for the whole length of a recording. Clicking it does not steal focus either, so whatever you were looking at is still the thing you photograph.
 

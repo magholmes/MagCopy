@@ -231,6 +231,9 @@ class TextLink(tk.Label):
         self.bind("<Leave>", lambda e: self._hover(False))
         self.bind("<Button-1>", lambda e: self.command() if self.enabled else None)
 
+    def set_text(self, text):
+        self.configure(text=text)
+
     def set_enabled(self, on):
         self.enabled = bool(on)
         self.configure(cursor="hand2" if on else "arrow")

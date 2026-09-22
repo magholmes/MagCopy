@@ -4,7 +4,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # smoke_permission.py and smoke_own_windows.py are macOS-only and no-op elsewhere: they cover the
 # two ways a Mac build fails while looking like it works - a denied Screen Recording permission,
 # which captures an empty desktop rather than raising, and our own overlays landing in a recording.
-TESTS = ["smoke_platform_api.py", "smoke_gifinfo.py", "smoke_defaults.py", "smoke_permission.py", "smoke_own_windows.py", "smoke_escape_hatch.py", "smoke_hotkey_flow.py", "smoke_feedback.py", "smoke_dock.py", "smoke_frame.py", "smoke_overlay.py",
+TESTS = ["smoke_platform_api.py", "smoke_gifinfo.py", "smoke_defaults.py", "smoke_permission.py", "smoke_own_windows.py", "smoke_escape_hatch.py", "smoke_hotkey_flow.py", "smoke_feedback.py", "smoke_dock.py", "smoke_update.py", "smoke_frame.py", "smoke_overlay.py",
          "smoke_frame_live.py", "smoke_live_overlay.py", "smoke_frozen.py", "smoke_drag.py", "smoke_escape.py", "smoke_rebind.py", "smoke_rebind_realkeys.py", "smoke_flow.py",
          "smoke_pacing.py", "smoke_instance.py", "smoke_theme_colours.py", "smoke_ratio.py", "smoke_crop.py", "smoke_crop_handles.py", "smoke_editor_size.py", "smoke_done.py", "smoke_saving.py", "smoke_ui.py", "smoke_editor.py",
          "smoke_pipeline.py", "smoke_realistic.py"]

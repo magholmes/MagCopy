@@ -128,6 +128,67 @@ check("where it sits is remembered",
       (app.settings["dock_x"], app.settings["dock_y"]) == (x1, y1),
       "%s vs %s" % ((app.settings["dock_x"], app.settings["dock_y"]), (x1, y1)))
 
+# --- it lives along an edge: dropped anywhere, it parks against the nearest one
+def drop_at(px, py):
+    """Drag the closed pill so its top-left lands near (px, py), then let go."""
+    d.want_open = False
+    d.open = 0.0
+    d._place(); root.update()
+    wx, wy = d.top.winfo_x(), d.top.winfo_y()
+    d._press(Ev(6, 6, 1000, 1000))
+    d._move(Ev(6, 6, 1000 + (px - wx), 1000 + (py - wy)))
+    d._release(Ev(6, 6, 1000 + (px - wx), 1000 + (py - wy)))
+    pump(4)
+    return d.top.winfo_x(), d.top.winfo_y()
+
+
+wx, wy = d.top.winfo_x(), d.top.winfo_y()
+avx, avy, avw, avh = plat.work_area_for((wx, wy, 1, 1))
+cw, ch = d._closed()
+m = int(round(10 * d.s))
+mid_x, mid_y = avx + avw // 2, avy + avh // 2
+
+x, y = drop_at(mid_x, avy + 30)                       # near the top
+check("dropped near the top, it parks on the top edge", y == avy + m, "y=%d want %d" % (y, avy + m))
+x, y = drop_at(avx + 25, mid_y)                       # near the left
+check("dropped near the left, it parks on the left edge", x == avx + m, "x=%d want %d" % (x, avx + m))
+x, y = drop_at(avx + avw - cw - 25, mid_y)            # near the right
+check("dropped near the right, it parks on the right edge",
+      x == avx + avw - cw - m, "x=%d want %d" % (x, avx + avw - cw - m))
+x, y = drop_at(mid_x, avy + avh - ch - 25)            # near the bottom
+check("dropped near the bottom, it parks on the bottom edge",
+      y == avy + avh - ch - m, "y=%d want %d" % (y, avy + avh - ch - m))
+
+# --- and opening never pulls it off that edge
+for name, px, py, side in (("right", avx + avw - cw - 25, mid_y, "right"),
+                           ("left", avx + 25, mid_y, "left"),
+                           ("bottom", mid_x, avy + avh - ch - 25, "bottom"),
+                           ("top", mid_x, avy + 30, "top")):
+    drop_at(px, py)
+    cx, cy = d.top.winfo_x(), d.top.winfo_y()
+    cwid, chei = d.top.winfo_width(), d.top.winfo_height()
+    d._enter()
+    for _ in range(60):
+        pump(1)
+        if d.open >= 1.0:
+            break
+    ox, oy = d.top.winfo_x(), d.top.winfo_y()
+    owid, ohei = d.top.winfo_width(), d.top.winfo_height()
+    if side == "right":
+        good, detail = (cx + cwid) == (ox + owid), "right edge %d -> %d" % (cx + cwid, ox + owid)
+    elif side == "left":
+        good, detail = cx == ox, "left edge %d -> %d" % (cx, ox)
+    elif side == "bottom":
+        good, detail = (cy + chei) == (oy + ohei), "bottom edge %d -> %d" % (cy + chei, oy + ohei)
+    else:
+        good, detail = cy == oy, "top edge %d -> %d" % (cy, oy)
+    check("parked %-6s it opens without leaving that edge" % side, good, detail)
+    d._leave()
+    for _ in range(60):
+        pump(1)
+        if d.open <= 0.0:
+            break
+
 # --- it stays on screen even when told to go somewhere absurd
 app.settings["dock_x"], app.settings["dock_y"] = 99999, 99999
 d._place(); root.update()

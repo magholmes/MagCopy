@@ -37,6 +37,7 @@ from .settings import (APP_NAME, APP_VERSION, ASPECT_RATIOS, DEFAULTS, RES_DIR, 
 from .theme import (Button, DotToggle, Fonts, Hairline, HotkeyField, IconButton, Label, Panel,
                     Pills, THEME_ORDER, Theme, TextLink, register_fonts)
 from .tray import Tray
+from .update import Updater
 
 UI_SCALES = [("small", 0.85), ("medium", 1.0), ("large", 1.2), ("x-large", 1.45)]
 FPS_CHOICES = [(50, "50"), (25, "25"), (20, "20")]
@@ -70,6 +71,8 @@ class App:
         self.record_frame = None
         self.record_esc = None            # global Escape, alive only while recording
         self.dock = None                  # the floating controller, when it is switched on
+        self.updater = Updater(self.post, lambda st, tx: self.post(
+            lambda: self._update_state(st, tx)))
         self._hotkeys_held = False        # true while a shortcut field is being typed into
         self._pending_hotkey = None       # (which, key, previous, wanted), armed once keys are up
         self.editor = None
@@ -614,6 +617,28 @@ class App:
         self._render_recent()
         self._fit()
 
+    # ----------------------------------------------------------------- updates
+    def _update_clicked(self):
+        """One link, two jobs: check first, and once something is found, install it."""
+        if self.updater.busy:
+            return
+        if self.updater.latest:
+            self.updater.install()
+        else:
+            self.updater.check()
+
+    def _update_state(self, state, text):
+        if state == "open":                      # nothing to install here - hand it to a browser
+            self._open(text)
+            self.update_link.set_text("opened the download page")
+            return
+        self.update_link.set_text(text)
+        if state in ("error", "current"):
+            self.toast(text, error=(state == "error"))
+        if state == "installing":
+            # the helper is running; this copy is about to be stopped and replaced
+            self.toast(text)
+
     def _set_dock(self, on):
         self.settings["show_dock"] = bool(on)
         self._persist()
@@ -665,6 +690,10 @@ class App:
         ver = Label(chrome, role="mute2", text=APP_VERSION, font=F.mono8, anchor="w")
         ver.pack(side="left", padx=(S(8), 0))
         T.add(ver)
+        self.update_link = TextLink(chrome, "check for updates", self._update_clicked, F,
+                                    role="mute2")
+        self.update_link.pack(side="left", padx=(S(10), 0))
+        T.add(self.update_link)
         btn_close = IconButton(chrome, "close", self.hide_window, self.scale)
         btn_min = IconButton(chrome, "minimize", self.minimize, self.scale)
         btn_close.pack(side="right", padx=(S(2), 0))

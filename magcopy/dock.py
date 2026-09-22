@@ -32,6 +32,7 @@ STEP_MS = 12                        # animation tick
 OPEN_MS = 130                       # how long the open/close tween runs
 LEAVE_MS = 170                      # grace before closing, so a wobble does not shut it
 DRAG_SLOP = 4                       # a press that moves less than this is a click
+MARGIN = 10                         # how far off the edge it parks
 
 
 def _mix(a, b, t):
@@ -66,36 +67,80 @@ class Dock:
         t = self.open
         return int(round(cw + (ew - cw) * t)), int(round(ch + (eh - ch) * t))
 
+    def _closed(self):
+        return int(round(COLLAPSED[0] * self.s)), int(round(COLLAPSED[1] * self.s))
+
     def _default_pos(self):
-        """Bottom right of the work area the pointer is on, a comfortable margin in."""
+        """Against the bottom right of whichever work area the pointer is on."""
         try:
             x, y = self.root.winfo_pointerx(), self.root.winfo_pointery()
         except Exception:
             x = y = 0
         vx, vy, vw, vh = plat.work_area_for((x, y, 1, 1))
-        ew, eh = (int(round(v * self.s)) for v in EXPANDED)
-        return vx + vw - ew - int(38 * self.s), vy + vh - eh - int(38 * self.s)
+        cw, ch = self._closed()
+        m = int(round(MARGIN * self.s))
+        return vx + vw - cw - m, vy + vh - ch - m
+
+    def _anchor_pos(self):
+        """Where the closed pill sits: remembered, or defaulted the first time."""
+        x, y = int(self.settings.get("dock_x", -1)), int(self.settings.get("dock_y", -1))
+        if (x, y) == (-1, -1) or x < -100000 or y < -100000:
+            x, y = self._default_pos()
+            self.settings["dock_x"], self.settings["dock_y"] = x, y
+        return x, y
+
+    def _anchors(self, x, y):
+        """Which sides stay put while it opens: the ones nearest an edge.
+
+        Pinning the top left, as this first did, means a dock parked on the right closes by
+        dragging its right edge inward - the pill walks away from the edge it was put against and
+        ends up adrift in the middle of the screen. Pinning the near sides instead welds it to the
+        edge and lets it open into whatever room it has.
+        """
+        cw, ch = self._closed()
+        vx, vy, vw, vh = plat.work_area_for((x, y, 1, 1))
+        return (x + cw / 2.0) > (vx + vw / 2.0), (y + ch / 2.0) > (vy + vh / 2.0)
+
+    def snap_to_edge(self):
+        """Park the closed pill against whichever edge it was dropped nearest."""
+        x, y = self._anchor_pos()
+        cw, ch = self._closed()
+        vx, vy, vw, vh = plat.work_area_for((x, y, 1, 1))
+        m = int(round(MARGIN * self.s))
+        gaps = {"left": x - vx, "right": (vx + vw) - (x + cw),
+                "top": y - vy, "bottom": (vy + vh) - (y + ch)}
+        side = min(gaps, key=gaps.get)
+        if side == "left":
+            x = vx + m
+        elif side == "right":
+            x = vx + vw - cw - m
+        elif side == "top":
+            y = vy + m
+        else:
+            y = vy + vh - ch - m
+        # the axis it did not snap on still has to land on screen
+        x = max(vx + m, min(x, vx + vw - cw - m))
+        y = max(vy + m, min(y, vy + vh - ch - m))
+        self.settings["dock_x"], self.settings["dock_y"] = int(x), int(y)
+        return side
 
     def _place(self):
         """Put the window where it should be, clamped on screen.
 
-        The dock grows rightward from its anchor so the pointer, which is over the closed pill,
-        stays inside the open one - a window that opened out from under the cursor would flicker
-        between states. Against the right edge there is no room to grow that way, so it opens
-        leftward instead and the anchor shifts with it.
+        It opens away from whichever edge it is parked against, so the pointer - which is over
+        the closed pill - stays inside the open one and the dock never walks off its edge.
         """
         w, h = self._size()
-        x, y = int(self.settings.get("dock_x", -1)), int(self.settings.get("dock_y", -1))
-        if x < -10000 or y < -10000 or (x, y) == (-1, -1):
-            x, y = self._default_pos()
-            self.settings["dock_x"], self.settings["dock_y"] = x, y
+        x, y = self._anchor_pos()
+        cw, ch = self._closed()
+        right, bottom = self._anchors(x, y)
         vx, vy, vw, vh = plat.work_area_for((x, y, 1, 1))
-        ew, _ = (int(round(v * self.s)) for v in EXPANDED)
-        # Against the right edge the open dock would run off, so the anchor slides left by
-        # however much it needs; the closed pill stays put and the open one reaches back over it.
-        draw_x = min(x, vx + vw - ew - 4) if x + ew > vx + vw - 4 else x
+        # The anchored sides hold still and the opposite ones move, so the edge it is parked
+        # against is the one edge that never shifts.
+        draw_x = (x + cw) - w if right else x
+        draw_y = (y + ch) - h if bottom else y
         draw_x = max(vx + 2, min(draw_x, vx + vw - w - 2))
-        draw_y = max(vy + 2, min(y, vy + vh - h - 2))
+        draw_y = max(vy + 2, min(draw_y, vy + vh - h - 2))
         self.top.geometry("%dx%d+%d+%d" % (w, h, draw_x, draw_y))
         self.cv.configure(width=w, height=h)
 
@@ -286,6 +331,7 @@ class Dock:
             # Settle inside the work area, then remember where it ended up. The idle pass is not
             # optional: geometry() only queues the move, so reading the position straight after
             # returns where the window still is and writes the pre-drag spot back to settings.
+            self.snap_to_edge()
             self._place()
             try:
                 self.top.update_idletasks()
