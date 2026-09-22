@@ -26,6 +26,7 @@ from tkinter import filedialog
 import numpy as np
 
 from . import plat, overlay
+from .dock import Dock
 from .binaries import TOOLS
 from .editor import GifEditor
 from .optimize import gif_info
@@ -68,6 +69,7 @@ class App:
         self.recorder = None
         self.record_frame = None
         self.record_esc = None            # global Escape, alive only while recording
+        self.dock = None                  # the floating controller, when it is switched on
         self._hotkeys_held = False        # true while a shortcut field is being typed into
         self._pending_hotkey = None       # (which, key, previous, wanted), armed once keys are up
         self.editor = None
@@ -91,6 +93,8 @@ class App:
 
         self.hotkeys = plat.HotkeyManager()
         self._bind_hotkeys()
+        # after the window exists, so the dock can measure a work area and sit on top of it
+        root.after(120, self._sync_dock)
         self.tray = Tray(self._icon_path(), "%s %s" % (APP_NAME, APP_VERSION),
                          [("Open MagCopy", "open"), (None, None),
                           ("Screenshot to clipboard", "shot"), ("Record a GIF", "gif"),
@@ -208,12 +212,44 @@ class App:
 
     # ----------------------------------------------------------------- flows
     def _hide_for_capture(self):
+        """Take our own windows off screen before anything reads the desktop.
+
+        The dock counts, and counts more than the main window does: it is topmost, so whatever it
+        overlaps it would be baked into a screenshot's freeze-frame or stand in the middle of a
+        recording. It is put back by `_after_capture`, which every path out of a capture calls.
+        """
         visible = bool(self.root.winfo_viewable())
         if visible:
             self.root.withdraw()
+        dock_was_up = self.dock.hide_for_capture() if self.dock else False
+        if visible or dock_was_up:
             self.root.update()
             time.sleep(0.12)                              # let the compositor finish the fade
         return visible
+
+    def _after_capture(self, was_visible):
+        if was_visible:
+            self.root.deiconify()
+        if self.dock:
+            self.dock.restore_after_capture()
+
+    def _sync_dock(self):
+        """Create or remove the floating controller to match the setting."""
+        want = bool(self.settings.get("show_dock"))
+        if want and self.dock is None:
+            self.dock = Dock(self.root, self.theme, self.settings,
+                             on_shot=lambda: self.post(self.start_screenshot),
+                             on_gif=lambda: self.post(self.start_gif),
+                             scale=self.scale, on_moved=self._persist)
+            self.theme.add(self.dock)
+            self.dock.show()
+        elif not want and self.dock is not None:
+            try:
+                self.theme.listeners.remove(self.dock)
+            except ValueError:
+                pass
+            self.dock.destroy()
+            self.dock = None
 
     def start_screenshot(self):
         if self.busy:
@@ -254,8 +290,7 @@ class App:
             self.toast("the screenshot failed", error=True)
         finally:
             self.busy = False
-            if was_visible:
-                self.root.deiconify()
+            self._after_capture(was_visible)
 
     def start_gif(self):
         if self.recorder:                                 # the same shortcut stops a recording
@@ -275,13 +310,13 @@ class App:
             rect = sel.run()
             if not rect:
                 self.busy = False
-                if was_visible:
-                    self.root.deiconify()
+                self._after_capture(was_visible)
                 return
             self._begin_recording(rect)
         except Exception:
             log_exc("gif start")
             self.busy = False
+            self._after_capture(was_visible)
             self.toast("could not start recording", error=True)
 
     def _begin_recording(self, rect):
@@ -326,6 +361,8 @@ class App:
 
     def _record_done(self, rec):
         self._release_record_esc()
+        if self.dock:                       # down since the picker opened; the recording is over
+            self.dock.restore_after_capture()
         if self.record_frame:
             self.record_frame.destroy()
             self.record_frame = None
@@ -415,6 +452,9 @@ class App:
 
     def quit(self):
         self._alive = False
+        if self.dock:
+            self.dock.destroy()
+            self.dock = None
         self._release_record_esc()        # quitting mid-recording must not leave Escape captured
         try:
             self.hotkeys.stop()
@@ -573,6 +613,11 @@ class App:
         self._build()
         self._render_recent()
         self._fit()
+
+    def _set_dock(self, on):
+        self.settings["show_dock"] = bool(on)
+        self._persist()
+        self._sync_dock()
 
     def _set(self, key, value, rebuild=False):
         self.settings[key] = value
@@ -743,6 +788,16 @@ class App:
                             lambda v, k=key: self._set(k, v), self.scale)
             tog.pack(side="left", padx=(0, S(6)))
             T.add(tog)
+
+        r = row("controller")
+        self.toggle_dock = DotToggle(r, F, "floating controller", self.settings["show_dock"],
+                                     self._set_dock, self.scale)
+        self.toggle_dock.pack(side="left")
+        T.add(self.toggle_dock)
+        lab = Label(r, role="mute2", text="drag it anywhere · hover to open", font=F.mono8,
+                    anchor="w")
+        lab.pack(side="left", padx=(S(8), 0))
+        T.add(lab)
 
         r = row("startup", gap=0)
         self.toggle_autostart = DotToggle(r, F, "start at login" if sys.platform == "darwin"

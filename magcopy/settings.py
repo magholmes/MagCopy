@@ -12,7 +12,7 @@ import traceback
 
 IS_MAC = sys.platform == "darwin"
 APP_NAME = "MagCopy"
-APP_VERSION = "1.5"
+APP_VERSION = "1.6"
 FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if FROZEN
            else os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -99,6 +99,9 @@ DEFAULTS = dict(
     target_headroom=0.985,                # aim just under the limit, never at it
     play_sound=False,
     show_recording_frame=True,
+    show_dock=False,                      # the floating controller: off unless asked for
+    dock_x=-1,                            # where it was last dragged to; -1 means "not yet placed"
+    dock_y=-1,
     start_with_windows=True,              # applied on first run only; after that the system wins
                                           # (the Run key on Windows, a LaunchAgent on macOS - the
                                           # settings key keeps its name so existing files still load)
@@ -208,8 +211,16 @@ def validate(s):
     except Exception:
         s["size_limit_mb"] = 10.0
     for key in ("save_screenshots", "save_gifs", "copy_gif_to_clipboard", "open_folder_after_gif",
-                "capture_cursor", "play_sound", "show_recording_frame", "start_with_windows"):
+                "capture_cursor", "play_sound", "show_recording_frame", "start_with_windows",
+                "show_dock"):
         s[key] = bool(s.get(key, DEFAULTS[key]))
+    # A saved dock position can be off the end of a monitor that is no longer attached; the dock
+    # clamps to a real work area when it places itself, so only the type has to be right here.
+    for key in ("dock_x", "dock_y"):
+        try:
+            s[key] = int(s.get(key, -1))
+        except Exception:
+            s[key] = -1
     return s
 
 
