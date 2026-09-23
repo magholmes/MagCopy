@@ -8,10 +8,17 @@ Installing means handing off and getting out of the way. The installer stops the
 before it touches a file - it has to, since a tray app never answers a close request - so the
 process that starts it cannot also be the one that waits for it and starts the new version. A
 small detached helper does that instead, and deletes itself afterwards.
+
+macOS has no installer to hand to, so its helper is the installer: it waits for this copy to
+quit, swaps the .app bundle for the downloaded one, and starts it. The download is the zip the
+one-line install script fetches, and like everything that script fetches it is never marked
+quarantined, so the new copy opens without the Gatekeeper refusal a browser download gets.
 """
 import json
 import os
+import platform
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -30,7 +37,10 @@ PAGE = "https://github.com/%s/releases/latest" % REPO
 # for someone to click by mistake.
 WIN_ASSET = "MagCopy-windows.zip"
 SETUP_NAME = "MagCopy-Setup.exe"
-MAC_ASSET = "MagCopy-macos.dmg"
+# The zip rather than the disk image: it is the file install-macos.sh downloads, so it is still
+# the one people install from, and it unpacks with ditto instead of having to be mounted.
+MAC_ASSET = "MagCopy-macos.zip"
+MAC_APP = APP_NAME + ".app"
 TIMEOUT = 20
 
 
@@ -63,10 +73,115 @@ def fetch_latest(timeout=TIMEOUT):
 def can_install():
     """True when this copy can replace itself without the user going to a browser.
 
-    Running from source has no installer to hand, and on macOS the download is a disk image
-    someone drags an app out of - neither is something to do behind a progress bar.
+    Running from source has no installer to hand. On macOS it depends where the app is: see
+    _mac_can_install.
     """
+    if plat.IS_MAC:
+        return _mac_can_install()
     return FROZEN and os.name == "nt"
+
+
+# ----------------------------------------------------------------------------- macOS
+def app_bundle():
+    """The .app this copy is running from, or None when it is not running from one."""
+    if not (FROZEN and plat.IS_MAC):
+        return None
+    macos = os.path.dirname(os.path.realpath(sys.executable))     # .app/Contents/MacOS
+    contents = os.path.dirname(macos)
+    bundle = os.path.dirname(contents)
+    if (os.path.basename(macos) == "MacOS" and os.path.basename(contents) == "Contents"
+            and bundle.endswith(".app")):
+        return bundle
+    return None
+
+
+def _mac_can_install():
+    """Only a bundle this user can replace, where it actually lives.
+
+    An app opened straight from a browser download runs from a randomised read-only copy macOS
+    makes for it (App Translocation), and one opened from the disk image runs from the image.
+    Replacing either would change nothing that is launched next time, so both open the download
+    page instead - as does an installation this user has no write access to.
+    """
+    bundle = app_bundle()
+    if not bundle or "/AppTranslocation/" in bundle or bundle.startswith("/Volumes/"):
+        return False
+    return os.access(os.path.dirname(bundle), os.W_OK) and os.access(bundle, os.W_OK)
+
+
+def extract_app(zip_path):
+    """Unpack the downloaded zip and return the checked MagCopy.app inside it.
+
+    ditto rather than zipfile: a bundle is symlinks, executable bits and a code signature sealed
+    over all of it, and zipfile restores none of those - what came out would be refused at launch.
+    It is then checked the way macOS will check it, and for this Mac's architecture, so a bad
+    download fails here with a message rather than leaving a MagCopy that no longer opens.
+    """
+    out = os.path.join(os.path.dirname(zip_path), "unpacked")
+    subprocess.run(["/usr/bin/ditto", "-x", "-k", zip_path, out], check=True,
+                   capture_output=True, timeout=300)
+    app = os.path.join(out, MAC_APP)
+    exe = os.path.join(app, "Contents", "MacOS", APP_NAME)
+    if not os.path.isfile(exe):
+        raise IOError("%s is not in the download" % MAC_APP)
+    sig = subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app],
+                         capture_output=True, timeout=180)
+    if sig.returncode != 0:
+        raise IOError("the downloaded app fails its signature check: %s"
+                      % sig.stderr.decode("utf-8", "replace").strip())
+    archs = subprocess.run(["/usr/bin/lipo", "-archs", exe], capture_output=True,
+                           timeout=30).stdout.decode("utf-8", "replace").split()
+    if archs and platform.machine() not in archs:
+        raise IOError("the published build is %s and this Mac is %s"
+                      % ("/".join(archs), platform.machine()))
+    return app
+
+
+def _mac_install_and_restart(new_app, pid=None, bundle=None):
+    """Swap the running bundle for `new_app`, from a helper that waits for this copy to quit.
+
+    Nothing outside stops a running copy here the way the Windows installer does, so the app
+    quits itself once this returns (see App._update_state) and the helper waits for that. It
+    moves the old bundle aside rather than deleting it, copies the new one into its place, and
+    only then removes the old one - or puts it back, so a failed copy leaves the old version
+    rather than none. Then it starts the new copy hidden, as a login start does, and cleans up.
+
+    `pid` and `bundle` default to this process and the bundle it runs from; smoke_update passes
+    a stand-in for each, so the swap itself is tested without replacing anything real.
+    """
+    bundle = bundle or app_bundle()
+    if not bundle:
+        raise RuntimeError("not running from an app bundle")
+    work = os.path.dirname(os.path.dirname(new_app))       # the temp folder the zip went into
+    helper = os.path.join(work, "magcopy-update.sh")
+    script = "\n".join([
+        "#!/bin/sh",
+        "PID=%d" % (os.getpid() if pid is None else pid),
+        "APP=%s" % shlex.quote(bundle),
+        "NEW=%s" % shlex.quote(new_app),
+        'OLD="$APP.old-$$"',
+        "i=0",
+        'while kill -0 "$PID" 2>/dev/null; do',        # asked to quit; allow it 30 s, then insist
+        "  i=$((i + 1))",
+        '  [ "$i" -eq 150 ] && kill "$PID" 2>/dev/null',
+        '  [ "$i" -ge 200 ] && kill -9 "$PID" 2>/dev/null',
+        "  sleep 0.2",
+        "done",
+        'if mv "$APP" "$OLD"; then',
+        '  if /usr/bin/ditto "$NEW" "$APP"; then rm -rf "$OLD"; else rm -rf "$APP"; mv "$OLD" "$APP"; fi',
+        "fi",
+        'xattr -dr com.apple.quarantine "$APP" 2>/dev/null',
+        'open "$APP" --args --hidden',
+        "rm -rf %s" % shlex.quote(work),
+        ""])
+    with open(helper, "w", encoding="utf-8") as fh:
+        fh.write(script)
+    os.chmod(helper, 0o755)
+    # its own session, so it outlives this process rather than going down with it
+    subprocess.Popen(["/bin/sh", helper], start_new_session=True, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL)
+    return helper
 
 
 def download(url, on_progress=None, timeout=TIMEOUT):
@@ -175,6 +290,8 @@ class Updater:
                          daemon=True).start()
 
     def _install(self, url):
+        if plat.IS_MAC:
+            return self._install_mac(url)
         try:
             path = download(url, on_progress=lambda f: self.post(
                 lambda: self.on_state("downloading", "downloading… %d%%" % int(f * 100))))
@@ -182,6 +299,18 @@ class Updater:
                 self.post(lambda: self.on_state("downloading", "unpacking…"))
                 path = extract_setup(path)
             install_and_restart(path)
+        except Exception:
+            log_exc("update install")
+            self.post(lambda: self._done("error", "the update failed"))
+            return
+        self.post(lambda: self._done("installing", "installing - MagCopy will restart"))
+
+    def _install_mac(self, url):
+        try:
+            path = download(url, on_progress=lambda f: self.post(
+                lambda: self.on_state("downloading", "downloading… %d%%" % int(f * 100))))
+            self.post(lambda: self.on_state("downloading", "unpacking…"))
+            _mac_install_and_restart(extract_app(path))
         except Exception:
             log_exc("update install")
             self.post(lambda: self._done("error", "the update failed"))

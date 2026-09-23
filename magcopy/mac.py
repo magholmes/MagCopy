@@ -197,13 +197,20 @@ def exclude_window(nswindow):
 
     The cached display list is dropped at the same time: it carries the window list the capture
     filter is built from, and one taken a moment ago does not know about this window yet.
+
+    Returns True once the window is on the list, as win.exclude_window does when Windows agrees
+    to it. The recorder decides where its control bar may go from that answer: an excluded bar
+    can sit over a whole-screen recording, and one that is not has to go somewhere else. This
+    used to return nothing, so the bar was always treated as recordable - it was left out of every
+    frame all the same, but sent to another monitor, or reported as being recorded, for no reason.
     """
     if nswindow is None:
-        return
+        return False
     _prune_excluded()
     if nswindow not in _EXCLUDED:
         _EXCLUDED.append(nswindow)
         _SHAREABLE["content"] = None
+    return True
 
 
 def _prune_excluded():
@@ -221,6 +228,7 @@ def _prune_excluded():
 
 def clear_excluded():
     del _EXCLUDED[:]
+    return True
 
 
 def _wait_for(event, timeout=8.0):
@@ -545,6 +553,33 @@ def end_precise_timing(token):
     return True
 
 
+_LIBSYSTEM = []
+
+
+def trim_memory():
+    """Give freed memory back to macOS once a capture is over. See win.trim_memory.
+
+    The picker holds a Retina still of the whole desktop and frees it when it closes, but the
+    allocator keeps freed pages cached for reuse, so what Activity Monitor shows stays at the
+    peak. malloc_zone_pressure_relief is what the system itself calls under memory pressure: it
+    returns those cached pages. Measured on a 1512x982 point display: 55 MB idle, 67 MB after a
+    picker, 54 MB once trimmed.
+
+    The larger fix on Windows - numpy's OpenBLAS starting a thread per core - is not in here,
+    because it is in magcopy/__init__.py and already covers this platform: 6 threads idle.
+    """
+    try:
+        if not _LIBSYSTEM:
+            lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+            lib.malloc_zone_pressure_relief.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+            lib.malloc_zone_pressure_relief.restype = ctypes.c_size_t
+            _LIBSYSTEM.append(lib)
+        _LIBSYSTEM[0].malloc_zone_pressure_relief(None, 0)      # every zone, as much as it can
+        return True
+    except Exception:
+        return False
+
+
 # ----------------------------------------------------------------------------- clipboard
 def set_clipboard_image(bgra):
     """Put a BGRA array on the pasteboard as a real image.
@@ -691,6 +726,32 @@ def format_hotkey(mods, vk):
     return "+".join(parts)
 
 
+# The modifier keys themselves, left and right: command, shift, option, control. The same set
+# win.MODIFIER_VKS names, in this platform's key codes.
+MODIFIER_KEYCODES = (55, 54, 56, 60, 58, 61, 59, 62)
+
+
+def combo_down(combo=None):
+    """True while any modifier - or `combo`'s own key - is still physically held.
+
+    The same question win.combo_down answers, for the same reason: a shortcut armed while the
+    keys that were just pressed to set it are still down can go off straight away, and the
+    settings field waits for a clear keyboard before arming one. Asked of the HID state, which
+    needs no permission - it says whether a key is down, not what anyone typed - and in the
+    combined session state, so a key held by a posted event reads as held too, as it does from
+    GetAsyncKeyState.
+    """
+    codes = list(MODIFIER_KEYCODES)
+    parsed = parse_hotkey(combo) if combo else None
+    if parsed:
+        codes.append(parsed[1])
+    try:
+        state = Quartz.kCGEventSourceStateCombinedSessionState
+        return any(bool(Quartz.CGEventSourceKeyState(state, int(c))) for c in codes)
+    except Exception:
+        return False
+
+
 _HOTKEY_HANDLER = {"installed": False, "ref": None, "cb": None}
 _HOTKEY_ROUTES = {}                 # carbon id -> callback
 _HOTKEY_LOCK = threading.Lock()
@@ -786,6 +847,16 @@ class HotkeyManager:
         """True once a set has been applied, so a caller knows to rebind rather than start."""
         return self._started
 
+    @property
+    def _callbacks(self):
+        """What win.HotkeyManager keeps under this name: every live registration, by id.
+
+        The rebinding test counts these to prove nothing stays armed while a shortcut is being
+        typed, and it is the same test on both platforms.
+        """
+        with _HOTKEY_LOCK:
+            return {hk_id: _HOTKEY_ROUTES.get(hk_id) for _ref, hk_id in self._entries}
+
     def start(self, bindings):
         """bindings: list of (name, hotkey_string, callback). Returns the names that failed."""
         return self._apply(bindings)
@@ -873,17 +944,22 @@ def toplevel_hwnd(tk_widget):
             except Exception:
                 _NSWIN_CACHE.pop(key, None)
         tk_widget.update_idletasks()
-        want = (tk_widget.winfo_rootx(), tk_widget.winfo_rooty(),
-                tk_widget.winfo_width(), tk_widget.winfo_height())
         hits = []
-        for w_ in _all_windows():
-            fx, fy, fw, fh = _from_cocoa(_nsrect(w_.frame()))
-            if abs(fx - want[0]) <= 2 and abs(fy - want[1]) <= 2 and \
-               abs(fw - want[2]) <= 4 and abs(fh - want[3]) <= 4:
-                hits.append(w_)
-        if len(hits) == 1:
-            _NSWIN_CACHE[key] = hits[0]
-            return hits[0]
+        # A toplevel that has not been shown yet is 1x1 at the origin as far as Tk is concerned,
+        # which says nothing about which window it is - and whatever it matched would be cached
+        # for the life of the widget. The recorder asks at exactly that moment, to exclude its
+        # control bar before placing it, so go straight to the name for an unmapped one.
+        if tk_widget.winfo_ismapped():
+            want = (tk_widget.winfo_rootx(), tk_widget.winfo_rooty(),
+                    tk_widget.winfo_width(), tk_widget.winfo_height())
+            for w_ in _all_windows():
+                fx, fy, fw, fh = _from_cocoa(_nsrect(w_.frame()))
+                if abs(fx - want[0]) <= 2 and abs(fy - want[1]) <= 2 and \
+                   abs(fw - want[2]) <= 4 and abs(fh - want[3]) <= 4:
+                    hits.append(w_)
+            if len(hits) == 1:
+                _NSWIN_CACHE[key] = hits[0]
+                return hits[0]
         marker = "__magcopy_%d__" % id(tk_widget)          # ambiguous: name it and look again
         old = tk_widget.title()
         tk_widget.title(marker)
@@ -1216,6 +1292,37 @@ def foreground_window_rect():
     except Exception:
         pass
     return None
+
+
+def frontmost_app():
+    """The application in front of everything, unless that is MagCopy itself."""
+    try:
+        from AppKit import NSRunningApplication
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        me = NSRunningApplication.currentApplication()
+        if app is None or me is None or app.processIdentifier() == me.processIdentifier():
+            return None
+        return app
+    except Exception:
+        return None
+
+
+def activate_app(app):
+    """Hand focus back to `app`, as returned by frontmost_app.
+
+    Clicking a window activates the application it belongs to, and there is no window-level
+    switch for that on macOS the way WS_EX_NOACTIVATE is on Windows - only an NSPanel can decline,
+    and a Tk toplevel is not one. So the controller gives focus back instead of never taking it:
+    the app that was in front when the pointer arrived is made active again before the capture
+    starts, which puts the screen back in the state it was in and matches what a shortcut does,
+    since a shortcut never activates MagCopy in the first place.
+    """
+    if app is None:
+        return False
+    try:
+        return bool(app.activateWithOptions_(0))
+    except Exception:
+        return False
 
 
 def flash_taskbar(root):

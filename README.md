@@ -47,7 +47,9 @@ Lives in the menu bar or the tray. No Dock icon.
 
 **check for updates** next to the version in the window. It asks GitHub, tells you either way, and if there is a newer one the link turns into **update to 1.8** — click it and MagCopy downloads the release, installs it and restarts itself.
 
-It only ever moves when you click it. Running from source, or on macOS, it opens the download page instead.
+It only ever moves when you click it. Running from source it opens the download page instead.
+
+On macOS it swaps the app in place: it downloads the same zip the curl line does, checks its signature, waits for MagCopy to quit, puts the new one where the old one was and starts it. If the old copy can't be replaced — run straight from the .dmg, or installed somewhere you can't write — it opens the download page. Screen Recording has to be allowed again afterwards, as with any update.
 
 ## The floating controller
 
@@ -133,12 +135,12 @@ Building: `.\build.ps1 -Folder` on Windows, `./build_mac.sh` on a Mac.
 python tools/run_all_tests.py
 ```
 
-Thirty of them, about three minutes, the same set on both platforms. Several sample the screen itself rather than the code's own idea of what it drew, which is how two bugs were found where Windows reported a window as mapped while compositing nothing. One reads every call into the platform layer with `ast` and checks it matches the platform running it — two signatures drifting apart is how recording once failed completely on Windows while the exception was caught and reported as a polite message.
+Thirty-four of them, a few minutes, the same set on both platforms. Several sample the screen itself rather than the code's own idea of what it drew, which is how two bugs were found where Windows reported a window as mapped while compositing nothing. One reads every call into the platform layer with `ast` and checks it matches both platforms — the one running it, and the other read from its source, since `win.py` can't even be imported on a Mac. Two signatures drifting apart is how recording once failed completely on Windows while the exception was caught and reported as a polite message.
 
 ## Known limits
 
 - **Windows:** GDI can't see fullscreen-exclusive games; they come out black.
-- **macOS:** Apple Silicon only, 12.3+. Not notarised, so first launch is right-click → Open and Screen Recording has to be granted again after each update. Both are the same missing certificate.
+- **macOS:** Apple Silicon only, 12.3+. Not notarised, so the .dmg's first launch is right-click → Open and Screen Recording has to be granted again after each update. Both are the same missing certificate.
 - **macOS:** the editor preview can't be pixel-sharp on Retina — Tk draws one image pixel per *point*. Preview only; the saved GIF comes from the full-resolution master.
 - A shortcut another app already owns can't be registered. MagCopy says so and keeps the one that was working.
 

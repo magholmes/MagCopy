@@ -42,6 +42,15 @@ if not hasattr(impl, "trim_memory"):
         return False
 
 
+if not hasattr(impl, "frontmost_app"):
+    def frontmost_app():
+        """Nothing to hand focus back to: clicking an overlay here never takes it."""
+        return None
+
+    def activate_app(app):
+        return False
+
+
 if not hasattr(impl, "combo_down"):
     def combo_down(combo=None):
         """No way to ask here, so say the keyboard is clear and arm immediately."""

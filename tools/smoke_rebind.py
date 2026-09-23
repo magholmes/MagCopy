@@ -16,7 +16,10 @@ import time
 import tkinter as tk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from magcopy import plat, win
+from magcopy import plat
+
+if os.name == "nt":
+    from magcopy import win      # the Win32 half below drives the real keyboard
 from magcopy.settings import SETTINGS_FILE
 
 # This drives the real settings UI, which saves. Keep the file exactly as it was found - an
@@ -88,7 +91,7 @@ else:
     check("combo_down answers without raising", plat.combo_down("ctrl+space") in (True, False))
 
 # ---- and the app does not do that
-win.set_dpi_aware()
+plat.set_dpi_aware()
 from magcopy.theme import register_fonts
 
 register_fonts()

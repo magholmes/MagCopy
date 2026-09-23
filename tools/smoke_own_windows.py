@@ -118,6 +118,9 @@ def check(name, good, detail=""):
 
 MARK = "#FF00FF"                      # magenta: nothing on a desktop is this
 RECT = (200, 200, 600, 400)
+from magcopy.theme import register_fonts
+plat.set_dpi_aware()
+register_fonts()
 root = tk.Tk(); root.withdraw(); root.update()
 
 # a marker window sitting squarely INSIDE the region about to be recorded
@@ -161,7 +164,91 @@ for name in sorted(os.listdir(frames_dir)):
     checked += 1
 check("frames were extracted to look at", checked > 0, "%d frames" % checked)
 check("no frame contains our own window", worst == 0, "worst frame: %d magenta pixels" % worst)
+mark.destroy(); root.update()
 
-mark.destroy(); root.destroy()
+# ---- the real control bar, which is the one piece of chrome that can land inside a region
+# The window above stands in for "one of ours". This is the actual bar, placed the way the
+# recorder places it: a whole-screen recording leaves it nowhere to go but over the recording,
+# which is only right if it is excluded - and exclude_window used to answer None here, so the
+# recorder believed it was not, reported it as recorded, and sent it to another monitor when it
+# could. Then it is put in the middle of a region on purpose and the frames are read back.
+from magcopy import mac
+from magcopy.recorder import RecordFrame
+from magcopy.theme import Fonts, Theme
+theme, fonts = Theme("dusk"), Fonts(root, 1.0)
+vx, vy, vw, vh = plat.work_area_for((0, 0, 10, 10))
+BW = 250
+small = RecordFrame(root, theme, fonts, (vx + 400, vy + 300, 500, 300), lambda: None, lambda: None, 1.0)
+check("a normal region keeps the bar outside it",
+      small._bar_spot(BW, small.BAR_H, False)[2] == "outside", small._bar_spot(BW, small.BAR_H, False)[2])
+whole = RecordFrame(root, theme, fonts, (vx, vy, vw, vh), lambda: None, lambda: None, 1.0)
+whole.show()
+for _ in range(10):
+    root.update(); time.sleep(0.01)
+check("the bar reports itself excluded", whole.bar_excluded is True, repr(whole.bar_excluded))
+check("so a whole-screen recording puts it over the region",
+      whole.bar_where == "inside, excluded from capture", whole.bar_where)
+whole.destroy(); root.update()
+
+GREEN = "#00FF00"
+BRECT = (vx + 300, vy + 260, 640, 360)
+back = tk.Toplevel(root); back.overrideredirect(True); back.attributes("-topmost", True)
+back.geometry("%dx%d+%d+%d" % (BRECT[2] + 60, BRECT[3] + 60, BRECT[0] - 30, BRECT[1] - 30))
+back.configure(bg=GREEN); back.deiconify()
+for _ in range(20):
+    root.update(); time.sleep(0.01)
+frame = RecordFrame(root, theme, fonts, BRECT, lambda: None, lambda: None, 1.0)
+frame.show()
+bx, by = BRECT[0] + (BRECT[2] - BW) // 2, BRECT[1] + (BRECT[3] - frame.BAR_H) // 2
+frame.bar.geometry("+%d+%d" % (bx, by))
+for _ in range(30):
+    root.update(); time.sleep(0.01)
+time.sleep(0.4); root.update()
+bar_nsw = plat.toplevel_hwnd(frame.bar)
+at = mac._from_cocoa(mac._nsrect(bar_nsw.frame())) if bar_nsw is not None else None
+check("the bar is on screen in the middle of the region",
+      bool(frame.bar.winfo_viewable()) and at is not None and abs(at[0] - bx) <= 1 and abs(at[1] - by) <= 1,
+      "at %s, wanted %d,%d" % (at, bx, by))
+# an ordinary capture - the kind the tests sample with - still sees it, so it is really there
+shot = plat.grab_once(bx, by, BW, frame.BAR_H).astype(int)
+check("an ordinary capture sees the bar there",
+      int(((shot[:, :, 1] < 200) | (shot[:, :, 2] > 90) | (shot[:, :, 0] > 90)).sum()) > 2000)
+
+bout = os.path.join(tempfile.mkdtemp(prefix="magcopy-own-bar-"), "r.mp4")
+rec = Recorder(BRECT, bout, fps=20, max_seconds=2, cursor=False)
+rec.start()
+deadline = time.time() + 12
+while rec.thread.is_alive() and time.time() < deadline:
+    root.update(); time.sleep(0.02)
+rec.thread.join(5)
+frame.destroy(); back.destroy(); root.update()
+check("the recording was written", os.path.exists(bout) and rec.frames > 5, "%d frames" % rec.frames)
+
+bdir = tempfile.mkdtemp(prefix="magcopy-own-bar-frames-")
+run([TOOLS.ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", bout,
+     "-vf", "fps=5", os.path.join(bdir, "f%03d.png")], timeout=120)
+worst, checked, green_ref = 0, 0, None
+for name in sorted(os.listdir(bdir)):
+    if not name.endswith(".png"):
+        continue
+    a = np.asarray(Image.open(os.path.join(bdir, name)).convert("RGB")).astype(int)
+    sx, sy = a.shape[1] / float(BRECT[2]), a.shape[0] / float(BRECT[3])     # Retina: 2 px a point
+    lx, ly = int((bx - BRECT[0]) * sx), int((by - BRECT[1]) * sy)
+    patch = a[ly:ly + int(frame.BAR_H * sy), lx:lx + int(BW * sx)]
+    # The green as it was actually recorded, from just below where the bar is: colour management
+    # and the encoder both move it, so a fixed threshold would be testing them instead.
+    ref = a[ly + int((frame.BAR_H + 20) * sy):ly + int((frame.BAR_H + 50) * sy), lx:lx + int(BW * sx)]
+    green_ref = ref.reshape(-1, 3).mean(axis=0)
+    off = int((np.abs(patch - green_ref).max(axis=2) > 48).sum())
+    worst = max(worst, off)
+    checked += 1
+check("frames were extracted to look at", checked > 0, "%d frames" % checked)
+check("what is behind the bar was recorded - the green",
+      green_ref is not None and green_ref[1] > green_ref[0] + 60 and green_ref[1] > green_ref[2] + 60,
+      "mean %s" % (None if green_ref is None else [int(v) for v in green_ref]))
+check("no frame contains the bar - only the green behind it", worst < 40,
+      "worst frame: %d pixels unlike the green where the bar is" % worst)
+
+root.destroy()
 print("\nOWN WINDOWS EXCLUDED", "OK" if ok else "PROBLEM")
 sys.exit(0 if ok else 1)

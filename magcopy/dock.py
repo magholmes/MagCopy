@@ -32,6 +32,8 @@ STEP_MS = 12                        # animation tick
 OPEN_MS = 130                       # how long the open/close tween runs
 LEAVE_MS = 170                      # grace before closing, so a wobble does not shut it
 DRAG_SLOP = 4                       # a press that moves less than this is a click
+HOVER_POLL_MS = 30                  # macOS only: see Dock._poll_hover
+FOCUS_BACK_MS = 140                 # macOS only: see Dock._fire
 MARGIN = 8                          # how far off the edge it parks
 PULL = 140                          # dropped this near an edge, that axis sticks
 
@@ -42,6 +44,13 @@ def _mix(a, b, t):
     av = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
     bv = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
     return "#%02X%02X%02X" % tuple(int(round(x + (y - x) * t)) for x, y in zip(av, bv))
+
+
+class _PointerAt:
+    """The two fields _motion reads from a Tk event, for the macOS hover poll to hand it."""
+
+    def __init__(self, x, y):
+        self.x, self.y = x, y
 
 
 class Dock:
@@ -58,6 +67,9 @@ class Dock:
         self._drag = None
         self._zone = None               # which button the pointer is over: "shot", "gif", None
         self._hidden_for_capture = False
+        self._hover_job = None          # macOS only: the pointer poll standing in for <Enter>
+        self._hovering = False
+        self._front_before = None       # macOS only: who had focus when the pointer arrived
         self.top = None
         self.cv = None
 
@@ -188,6 +200,49 @@ class Dock:
         # then the controller is simply missing with nothing to say why. Claim the top again once
         # the window is settled; after that nothing competes for it.
         self.root.after(250, self._reassert_top)
+        if plat.IS_MAC:
+            self._hover_job = self.root.after(HOVER_POLL_MS, self._poll_hover)
+
+    def _poll_hover(self):
+        """macOS only: find out whether the pointer is over the dock by asking where it is.
+
+        macOS sends mouse-entered and mouse-moved events to the key window of the active
+        application, and the dock is neither: it belongs to an accessory app that is almost never
+        frontmost, and it must not take focus. So <Enter>, <Leave> and <Motion> simply never
+        arrive, and the dock sat as a closed pill forever, never offering its buttons - while the
+        tests passed, because they call _enter() directly. Checked with a real pointer resting on
+        its centre: no events at all.
+
+        Clicks are different and do arrive, so only hover needs standing in for. Polling costs
+        nothing, needs no focus and no permission, and hands the real handlers exactly what the
+        missing events would have: an enter, a leave, and a motion in window coordinates.
+        Windows gets real events and never starts this.
+        """
+        self._hover_job = None
+        if self.top is None:
+            return
+        try:
+            if self.top.winfo_viewable() and self._drag is None:
+                px, py = self.top.winfo_pointerxy()
+                x, y = self.top.winfo_rootx(), self.top.winfo_rooty()
+                w, h = self.top.winfo_width(), self.top.winfo_height()
+                inside = x <= px < x + w and y <= py < y + h
+                if inside:
+                    # The pointer is always on the dock before it can click it, and until the
+                    # click the user's own app is still in front - see _fire. Kept current while
+                    # it hovers, in case they switch apps meanwhile; frontmost_app answers None
+                    # once the click has made MagCopy active, so that never overwrites it.
+                    front = plat.frontmost_app()
+                    if front is not None:
+                        self._front_before = front
+                if inside != self._hovering:
+                    self._hovering = inside
+                    (self._enter if inside else self._leave)()
+                if inside:
+                    self._motion(_PointerAt(px - x, py - y))
+        except Exception:
+            pass
+        self._hover_job = self.root.after(HOVER_POLL_MS, self._poll_hover)
 
     def _reassert_top(self):
         if self.top is None or not self.top.winfo_viewable():
@@ -211,13 +266,13 @@ class Dock:
             self.cv.configure(bg=self.c["bg"])      # a plain slab still works
 
     def destroy(self):
-        for job in (self._job, self._leave_job):
+        for job in (self._job, self._leave_job, self._hover_job):
             if job:
                 try:
                     self.root.after_cancel(job)
                 except Exception:
                     pass
-        self._job = self._leave_job = None
+        self._job = self._leave_job = self._hover_job = None
         if self.top is not None:
             try:
                 self.top.destroy()
@@ -231,6 +286,7 @@ class Dock:
             return False
         self._hidden_for_capture = True
         self.want_open = False
+        self._hovering = False
         self.open = 0.0
         try:
             self.top.withdraw()
@@ -355,7 +411,22 @@ class Dock:
                 self.on_moved()
             return
         if zone and zone == self._hit(e.x, e.y):
-            (self.on_shot if zone == "shot" else self.on_gif)()
+            self._fire(self.on_shot if zone == "shot" else self.on_gif)
+
+    def _fire(self, action):
+        """Run a button's action - on macOS, after handing focus back to where it was.
+
+        The click itself made MagCopy the active application, and deactivating an app redraws
+        it: its title bar and traffic lights grey out and its selection turns grey. Capturing
+        straight away would photograph that inactive state rather than what was on screen a
+        moment ago. So focus goes back first and the capture waits a beat for the app to redraw.
+        On Windows the dock never takes focus (WS_EX_NOACTIVATE) and this runs the action at once.
+        """
+        if plat.IS_MAC and self._front_before is not None:
+            plat.activate_app(self._front_before)
+            self.root.after(FOCUS_BACK_MS, action)
+        else:
+            action()
 
     # ---- painting
     def draw(self):

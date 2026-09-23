@@ -15,6 +15,107 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+if sys.platform == "darwin":
+    # macOS: the same three questions, asked of the numbers Activity Monitor shows. The thread
+    # cap in magcopy/__init__.py covers this platform too (VECLIB_MAXIMUM_THREADS is Accelerate's
+    # spelling), and mac.trim_memory hands a picker's freed pages back the way win.trim_memory
+    # does. Measured: 55 MB and 6 threads idle; 67 MB right after a picker, 54 MB once trimmed.
+    import ctypes
+    import gc
+
+    import magcopy                                 # first, exactly as the launcher does
+
+    IDLE_MB = 160            # the Windows limit; measured ~55
+    THREAD_LIMIT = 16        # measured 6
+    IDLE_SHOWN_MB = 80       # what Activity Monitor shows once trimmed; measured ~54
+
+    _libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+
+    class RUsage2(ctypes.Structure):               # struct rusage_info_v2
+        _fields_ = [("ri_uuid", ctypes.c_uint8 * 16)] + [(n, ctypes.c_uint64) for n in (
+            "ri_user_time", "ri_system_time", "ri_pkg_idle_wkups", "ri_interrupt_wkups",
+            "ri_pageins", "ri_wired_size", "ri_resident_size", "ri_phys_footprint",
+            "ri_proc_start_abstime", "ri_proc_exit_abstime", "ri_child_user_time",
+            "ri_child_system_time", "ri_child_pkg_idle_wkups", "ri_child_interrupt_wkups",
+            "ri_child_pageins", "ri_child_elapsed_abstime", "ri_diskio_bytesread",
+            "ri_diskio_byteswritten")]
+
+    class TaskInfo(ctypes.Structure):              # struct proc_taskinfo
+        _fields_ = [(n, ctypes.c_uint64) for n in (
+            "pti_virtual_size", "pti_resident_size", "pti_total_user", "pti_total_system",
+            "pti_threads_user", "pti_threads_system")] + [(n, ctypes.c_int32) for n in (
+            "pti_policy", "pti_faults", "pti_pageins", "pti_cow_faults", "pti_messages_sent",
+            "pti_messages_received", "pti_syscalls_mach", "pti_syscalls_unix", "pti_csw",
+            "pti_threadnum", "pti_numrunning", "pti_priority")]
+
+    def footprint():
+        """The Memory column in Activity Monitor: this process's physical footprint, in MB."""
+        gc.collect()
+        ru = RUsage2()
+        _libc.proc_pid_rusage(os.getpid(), 2, ctypes.byref(ru))          # RUSAGE_INFO_V2
+        return ru.ri_phys_footprint / 1048576.0
+
+    def thread_count():
+        ti = TaskInfo()
+        _libc.proc_pidinfo(os.getpid(), 4, 0, ctypes.byref(ti), ctypes.sizeof(ti))   # TASKINFO
+        return int(ti.pti_threadnum)
+
+    ok = True
+
+    def check(name, good, detail=""):
+        global ok
+        ok = ok and good
+        print("%-58s %s %s" % (name, "ok  " if good else "FAIL", detail))
+
+    check("BLAS is held to one thread before numpy loads",
+          os.environ.get("OPENBLAS_NUM_THREADS") == "1"
+          and os.environ.get("VECLIB_MAXIMUM_THREADS") == "1",
+          "%r %r" % (os.environ.get("OPENBLAS_NUM_THREADS"), os.environ.get("VECLIB_MAXIMUM_THREADS")))
+
+    import tkinter as tk
+    from magcopy import overlay, plat
+    plat.set_dpi_aware()
+    from magcopy.theme import register_fonts
+    register_fonts()
+    root = tk.Tk()
+    root.withdraw()
+    from magcopy.app import App
+
+    app = App(root)
+    app.hide_window()
+
+    def pump(seconds):
+        t0 = time.time()
+        while time.time() - t0 < seconds:
+            root.update()
+            time.sleep(0.01)
+
+    pump(0.6)
+    idle, threads = footprint(), thread_count()
+    check("idle memory is small", idle < IDLE_MB, "%.0f MB (limit %d)" % (idle, IDLE_MB))
+    check("and it is not running a thread per core", threads < THREAD_LIMIT,
+          "%d threads (limit %d)" % (threads, THREAD_LIMIT))
+
+    # a screenshot picker is the biggest thing the app ever builds: a Retina still of the desktop
+    sel = overlay.selector_for(root, app.theme, app.fonts, app.settings)
+    root.after(500, sel._cancel)
+    sel.run()
+    del sel
+    app._after_capture(False)
+    right_after = footprint()
+    pump(3.4)                                      # the trim is debounced 2.5 s
+    trimmed = footprint()
+    # Tighter than the Windows margin, because a picker costs less here: ~12 MB that stays put
+    # without the trim, and with it the footprint ends at or just under where it started.
+    check("a picker's memory is given back once it closes", trimmed < idle + 5,
+          "%.0f MB idle, %.0f MB right after, %.0f MB once trimmed" % (idle, right_after, trimmed))
+    check("so Activity Monitor shows it back down too", trimmed < IDLE_SHOWN_MB,
+          "%.0f MB (limit %d)" % (trimmed, IDLE_SHOWN_MB))
+
+    app.quit()
+    print("\nMEMORY", "OK" if ok else "PROBLEM")
+    sys.exit(0 if ok else 1)
+
 if os.name != "nt":
     print("not windows - the counters read here are Win32\nMEMORY OK")
     sys.exit(0)

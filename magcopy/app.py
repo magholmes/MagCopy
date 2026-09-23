@@ -662,6 +662,10 @@ class App:
         if state == "installing":
             # the helper is running; this copy is about to be stopped and replaced
             self.toast(text)
+            if plat.IS_MAC:
+                # Nothing stops it from outside on macOS: the helper is waiting for this copy to
+                # quit before it swaps the app. Long enough for the toast to be read first.
+                self.root.after(1500, self.quit)
 
     def _set_dock(self, on):
         self.settings["show_dock"] = bool(on)

@@ -70,11 +70,50 @@ for _ in range(20):
     root.update()
 d = app.dock
 check("switching it on puts one on screen", d is not None and d.top.winfo_viewable())
-check("it is topmost", bool(d.top.attributes("-topmost")))
+if plat.IS_MAC:
+    # Tk's -topmost flag is not what holds it up here: set_overlay_styles puts the window at the
+    # screen-saver level (1000), above every ordinary window, and that is what has to be true.
+    nsw = plat.toplevel_hwnd(d.top)
+    level = int(nsw.level()) if nsw is not None else -1
+    check("it is topmost", level >= 1000, "window level %d" % level)
+else:
+    check("it is topmost", bool(d.top.attributes("-topmost")))
 check("it does not take focus when clicked", root.focus_displayof() is not app.dock.top)
 
 cw, ch = d._size()
 check("it starts closed and small", d.open == 0.0 and cw < 70, "%dx%d" % (cw, ch))
+
+if plat.IS_MAC:
+    # macOS sends <Enter> and <Motion> only to the key window of the active app, and the dock is
+    # never that, so hover there is a poll of where the pointer is - and every _enter() below
+    # passes whether or not the poll works. So put the real pointer on it, and take it away.
+    import Quartz
+
+    def warp(x, y):
+        Quartz.CGWarpMouseCursorPosition(Quartz.CGPointMake(x, y))
+        Quartz.CGAssociateMouseAndMouseCursorPosition(True)
+
+    def settle(until, n=150):
+        for _ in range(n):
+            root.update()
+            root.after(12)
+            root.update()
+            if until():
+                return
+
+    home = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+    try:
+        warp(d.top.winfo_rootx() + d.top.winfo_width() / 2.0,
+             d.top.winfo_rooty() + d.top.winfo_height() / 2.0)
+        settle(lambda: d.open >= 1.0)
+        check("the real pointer on it opens it (polled on macOS)", d.open >= 1.0,
+              "open=%.2f" % d.open)
+        mvx, mvy, mvw, mvh = plat.virtual_screen()
+        warp(mvx + mvw / 2.0, mvy + mvh / 2.0)          # nowhere near an edge it can be parked on
+        settle(lambda: d.open <= 0.0)
+        check("and taking the pointer away closes it", d.open <= 0.0, "open=%.2f" % d.open)
+    finally:
+        warp(home.x, home.y)
 
 # --- hover opens it
 d._enter()

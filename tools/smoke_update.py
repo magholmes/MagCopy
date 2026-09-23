@@ -57,7 +57,7 @@ try:
           "%s parses to %s" % (tag, update.version_tuple(tag)))
     # and the installer really is inside the asset the updater will fetch, which is the thing
     # that silently stopped working when the release stopped publishing a bare Setup.exe
-    if url and url.endswith(".zip"):
+    if url and url.endswith(".zip") and not plat.IS_MAC:
         import urllib.request, zipfile, io as _io
         req = urllib.request.Request(url, headers={"User-Agent": "magcopy-test"})
         with urllib.request.urlopen(req, timeout=120) as r:
@@ -65,8 +65,90 @@ try:
         with zipfile.ZipFile(_io.BytesIO(blob)) as zf:
             names = [n.rsplit("/", 1)[-1] for n in zf.namelist()]
         check("the download contains the installer", update.SETUP_NAME in names, str(names[:4]))
+    elif url and plat.IS_MAC:
+        # macOS: the app itself is what gets installed, so unpack the real download the way the
+        # updater does - ditto, then the signature and architecture checks macOS would make.
+        path = update.download(url, timeout=120)
+        try:
+            app_path = update.extract_app(path)
+            check("the download unpacks to a signed app that runs here",
+                  app_path.endswith(update.MAC_APP) and os.path.isfile(
+                      os.path.join(app_path, "Contents", "MacOS", update.APP_NAME)), app_path)
+        except Exception as e:
+            check("the download unpacks to a signed app that runs here", False,
+                  "%s: %s" % (type(e).__name__, e))
+        finally:
+            import shutil as _sh
+            _sh.rmtree(os.path.dirname(path), ignore_errors=True)
 except Exception as e:
     check("github is reachable", False, "%s: %s" % (type(e).__name__, e))
+
+# ---- macOS: the swap itself, run for real against stand-ins
+# The helper waits for a process to exit, moves the old bundle aside, copies the new one in and
+# starts it. Here the process is a short sleep, the bundles are two folders, and `open` is a stub
+# that writes down what it was asked to start - so everything runs except launching an app.
+if plat.IS_MAC:
+    import shutil
+    import subprocess
+    import tempfile
+    import time
+
+    check("from source there is no bundle to replace", update.app_bundle() is None)
+
+    def stand_in(where, marker):
+        os.makedirs(os.path.join(where, "Contents", "MacOS"))
+        with open(os.path.join(where, "Contents", "MacOS", "which"), "w") as fh:
+            fh.write(marker)
+
+    def which(bundle):
+        try:
+            with open(os.path.join(bundle, "Contents", "MacOS", "which")) as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    def swap(new_exists=True):
+        apps, stub = tempfile.mkdtemp(prefix="magcopy-apps-"), tempfile.mkdtemp(prefix="magcopy-bin-")
+        work = tempfile.mkdtemp(prefix="magcopy-update-")
+        old_app, new_app = os.path.join(apps, "MagCopy.app"), os.path.join(work, "unpacked", "MagCopy.app")
+        stand_in(old_app, "old")
+        if new_exists:
+            stand_in(new_app, "new")
+        opened = os.path.join(stub, "opened")
+        with open(os.path.join(stub, "open"), "w") as fh:
+            fh.write('#!/bin/sh\necho "$@" > %s\n' % opened)
+        os.chmod(os.path.join(stub, "open"), 0o755)
+        sleeper = subprocess.Popen(["/bin/sleep", "1.2"])
+        path_was = os.environ.get("PATH", "")
+        os.environ["PATH"] = stub + os.pathsep + path_was
+        try:
+            update._mac_install_and_restart(new_app, pid=sleeper.pid, bundle=old_app)
+        finally:
+            os.environ["PATH"] = path_was
+        early = which(old_app)
+        deadline = time.time() + 20
+        while not os.path.exists(opened) and time.time() < deadline:
+            sleeper.poll()                     # reap it, or it lingers as a zombie kill -0 still sees
+            time.sleep(0.05)
+        time.sleep(0.2)
+        got = {"early": early, "after": which(old_app), "opened": open(opened).read().strip()
+               if os.path.exists(opened) else None,
+               "leftovers": [n for n in os.listdir(apps) if n != "MagCopy.app"],
+               "work_gone": not os.path.exists(work)}
+        shutil.rmtree(apps, ignore_errors=True)
+        shutil.rmtree(stub, ignore_errors=True)
+        return got, old_app
+
+    got, where = swap()
+    check("the helper waits for the running copy to quit", got["early"] == "old", str(got["early"]))
+    check("then the new app is in the old one's place", got["after"] == "new", str(got["after"]))
+    check("and it is started hidden, from that same place",
+          got["opened"] == "%s --args --hidden" % where, repr(got["opened"]))
+    check("nothing is left beside it, and the download is cleaned up",
+          not got["leftovers"] and got["work_gone"], str(got))
+    got, _ = swap(new_exists=False)
+    check("a copy that fails puts the old app back", got["after"] == "old" and not got["leftovers"],
+          str(got))
 
 # ---- the link does nothing until it is clicked, and checks before it installs
 plat.set_dpi_aware()
