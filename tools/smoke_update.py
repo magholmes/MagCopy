@@ -68,18 +68,55 @@ try:
     elif url and plat.IS_MAC:
         # macOS: the app itself is what gets installed, so unpack the real download the way the
         # updater does - ditto, then the signature and architecture checks macOS would make.
+        import shutil as _sh
+        import tempfile as _tf
         path = update.download(url, timeout=120)
+        keep = os.path.join(_tf.mkdtemp(prefix="magcopy-zip-"), os.path.basename(path))
+        _sh.copy(path, keep)
+        published = ""
         try:
             app_path = update.extract_app(path)
+            published = update.bundle_version(app_path)
             check("the download unpacks to a signed app that runs here",
                   app_path.endswith(update.MAC_APP) and os.path.isfile(
-                      os.path.join(app_path, "Contents", "MacOS", update.APP_NAME)), app_path)
+                      os.path.join(app_path, "Contents", "MacOS", update.APP_NAME)),
+                  "version %s" % published)
         except Exception as e:
             check("the download unpacks to a signed app that runs here", False,
                   "%s: %s" % (type(e).__name__, e))
         finally:
-            import shutil as _sh
             _sh.rmtree(os.path.dirname(path), ignore_errors=True)
+
+        # A Windows-only release carries the previous Mac download forward so the link keeps
+        # working. The tag is newer; the app inside is not. Installing it would restart into the
+        # same version and offer the same update forever, so the updater has to read the app's
+        # own version and decline. The published build is run through the real install path with
+        # only the final swap replaced, and it must install exactly when it is newer than this.
+        states, swapped = [], []
+        real_download, real_swap = update.download, update._mac_install_and_restart
+
+        def fake_download(u, on_progress=None, timeout=update.TIMEOUT):
+            d = _tf.mkdtemp(prefix="magcopy-update-")
+            return _sh.copy(keep, os.path.join(d, os.path.basename(keep)))
+
+        update.download = fake_download
+        update._mac_install_and_restart = lambda new_app, **kw: swapped.append(new_app)
+        try:
+            u = update.Updater(lambda f: f(), lambda st, tx: states.append((st, tx)))
+            u.latest = ("v99.0", url, update.PAGE)
+            u.busy = True
+            u._install_mac(url)
+        finally:
+            update.download, update._mac_install_and_restart = real_download, real_swap
+            _sh.rmtree(os.path.dirname(keep), ignore_errors=True)
+        newer = update.is_newer(published)
+        check("a Mac build no newer than this one is not installed" if not newer
+              else "a newer Mac build is installed",
+              bool(swapped) == newer and states and states[-1][0] == ("installing" if newer else "current"),
+              "published %s, this %s: %s" % (published, APP_VERSION, states[-1:]))
+        if not newer:
+            check("and that release stops being offered",
+                  u.no_build_for == "v99.0" and u.latest is None, repr(u.no_build_for))
 except Exception as e:
     check("github is reachable", False, "%s: %s" % (type(e).__name__, e))
 

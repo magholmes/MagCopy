@@ -137,6 +137,16 @@ def extract_app(zip_path):
     return app
 
 
+def bundle_version(app):
+    """The version an unpacked app says it is (CFBundleShortVersionString), or '' if unreadable."""
+    import plistlib
+    try:
+        with open(os.path.join(app, "Contents", "Info.plist"), "rb") as fh:
+            return str(plistlib.load(fh).get("CFBundleShortVersionString") or "")
+    except Exception:
+        return ""
+
+
 def _mac_install_and_restart(new_app, pid=None, bundle=None):
     """Swap the running bundle for `new_app`, from a helper that waits for this copy to quit.
 
@@ -255,6 +265,7 @@ class Updater:
         self.post, self.on_state = post, on_state
         self.latest = None                  # (tag, url, page) once a check has found something
         self.busy = False
+        self.no_build_for = None            # macOS: a tag whose Mac download turned out not newer
 
     def check(self):
         if self.busy:
@@ -270,7 +281,7 @@ class Updater:
             log_exc("update check")
             self.post(lambda: self._done("error", "could not reach github"))
             return
-        if not is_newer(tag):
+        if not is_newer(tag) or tag == self.no_build_for:
             self.post(lambda: self._done("current", "%s is the newest" % APP_VERSION))
             return
         self.latest = (tag, url, page)
@@ -310,7 +321,18 @@ class Updater:
             path = download(url, on_progress=lambda f: self.post(
                 lambda: self.on_state("downloading", "downloading… %d%%" % int(f * 100))))
             self.post(lambda: self.on_state("downloading", "unpacking…"))
-            _mac_install_and_restart(extract_app(path))
+            new_app = extract_app(path)
+            if not is_newer(bundle_version(new_app)):
+                # The release is newer and its Mac download is not: a Windows release that
+                # carried the previous Mac build forward so the download link keeps working.
+                # Installing it would restart into the same version and offer the same update
+                # again, so say this is the newest and stop offering that tag.
+                import shutil
+                shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+                self.no_build_for, self.latest = (self.latest or ("",))[0], None
+                self.post(lambda: self._done("current", "%s is the newest mac build" % APP_VERSION))
+                return
+            _mac_install_and_restart(new_app)
         except Exception:
             log_exc("update install")
             self.post(lambda: self._done("error", "the update failed"))
