@@ -33,7 +33,25 @@ def drive():
     res["after_change"] = plat.grab_once(vx + SEL[0] + 60, vy + SEL[1] + 60, 120, 80)[:, :, 2::-1].mean()
     sel._commit()
 
-root.after(120, drive)
+def _when_ready(sel, root, fn, tries=0):
+    """Drive the picker once it is actually up, not after a guessed delay.
+
+    Building the frozen still means grabbing the whole virtual desktop and resizing it, which on a
+    loaded machine takes longer than any fixed timer anyone picked. Driving it early produced a
+    picker that returned no rect and a screen sample of whatever was behind it - and it failed a
+    different one of these tests on each run of the suite.
+    """
+    ready = False
+    try:
+        ready = bool(sel.top and sel.top.winfo_viewable() and getattr(sel, "draw_cv", None))
+    except Exception:
+        ready = False
+    if ready or tries > 200:
+        fn()
+        return
+    root.after(25, lambda: _when_ready(sel, root, fn, tries + 1))
+
+_when_ready(sel, root, drive)
 rect = sel.run()
 back.destroy(); root.update()
 

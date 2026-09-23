@@ -15,6 +15,11 @@ ENV = dict(os.environ, MAGCOPY_NO_AUTOSTART="1",
            MAGCOPY_INSTANCE_NAME="MagCopy-suite-%d" % os.getpid())
 rows = []
 for t in TESTS:
+    # Several of these sample the screen or need the keyboard, and a process that has just exited
+    # can still have windows on screen for a moment. Without a beat between them the next test
+    # measures the last one's leftovers, which is what made the picker and hotkey tests fail in
+    # the suite while passing every time on their own.
+    time.sleep(0.5)
     t0 = time.time()
     r = subprocess.run([sys.executable, os.path.join(HERE, t)], env=ENV,
                        cwd=os.path.dirname(HERE), capture_output=True, text=True)

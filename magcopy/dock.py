@@ -32,7 +32,8 @@ STEP_MS = 12                        # animation tick
 OPEN_MS = 130                       # how long the open/close tween runs
 LEAVE_MS = 170                      # grace before closing, so a wobble does not shut it
 DRAG_SLOP = 4                       # a press that moves less than this is a click
-MARGIN = 10                         # how far off the edge it parks
+MARGIN = 8                          # how far off the edge it parks
+PULL = 140                          # dropped this near an edge, that axis sticks
 
 
 def _mix(a, b, t):
@@ -102,27 +103,40 @@ class Dock:
         return (x + cw / 2.0) > (vx + vw / 2.0), (y + ch / 2.0) > (vy + vh / 2.0)
 
     def snap_to_edge(self):
-        """Park the closed pill against whichever edge it was dropped nearest."""
+        """Park the closed pill against the edges it was dropped near."""
         x, y = self._anchor_pos()
         cw, ch = self._closed()
         vx, vy, vw, vh = plat.work_area_for((x, y, 1, 1))
         m = int(round(MARGIN * self.s))
-        gaps = {"left": x - vx, "right": (vx + vw) - (x + cw),
-                "top": y - vy, "bottom": (vy + vh) - (y + ch)}
-        side = min(gaps, key=gaps.get)
-        if side == "left":
-            x = vx + m
-        elif side == "right":
-            x = vx + vw - cw - m
-        elif side == "top":
-            y = vy + m
-        else:
-            y = vy + vh - ch - m
-        # the axis it did not snap on still has to land on screen
+        pull = int(round(PULL * self.s))
+        left, right = x - vx, (vx + vw) - (x + cw)
+        top, bottom = y - vy, (vy + vh) - (y + ch)
+        sides = []
+        # Each axis decides on its own, which is what makes the corners reachable: dropped near
+        # the bottom right, both snap and it lands in the corner instead of on whichever single
+        # edge happened to be a few pixels closer.
+        if min(left, right) <= pull:
+            sides.append("left" if left <= right else "right")
+            x = vx + m if left <= right else vx + vw - cw - m
+        if min(top, bottom) <= pull:
+            sides.append("top" if top <= bottom else "bottom")
+            y = vy + m if top <= bottom else vy + vh - ch - m
+        if not sides:                          # dropped out in the open: take the nearest edge
+            gaps = {"left": left, "right": right, "top": top, "bottom": bottom}
+            side = min(gaps, key=gaps.get)
+            sides.append(side)
+            if side == "left":
+                x = vx + m
+            elif side == "right":
+                x = vx + vw - cw - m
+            elif side == "top":
+                y = vy + m
+            else:
+                y = vy + vh - ch - m
         x = max(vx + m, min(x, vx + vw - cw - m))
         y = max(vy + m, min(y, vy + vh - ch - m))
         self.settings["dock_x"], self.settings["dock_y"] = int(x), int(y)
-        return side
+        return sides
 
     def _place(self):
         """Put the window where it should be, clamped on screen.
@@ -308,8 +322,12 @@ class Dock:
             self.draw()
 
     def _press(self, e):
-        self._drag = (e.x_root, e.y_root, self.top.winfo_x(), self.top.winfo_y(),
-                      self._hit(e.x, e.y), False)
+        # The anchor is where the CLOSED pill sits; the window under the pointer is the open one,
+        # 72px wider and 24px taller. Basing a drag on the window's own position folds that
+        # difference into the anchor every time, and the dock walks off its edge a little further
+        # with each grab. Starting from the anchor, there is nothing to accumulate.
+        ax, ay = self._anchor_pos()
+        self._drag = (e.x_root, e.y_root, ax, ay, self._hit(e.x, e.y), False)
 
     def _move(self, e):
         if self._drag is None:
@@ -328,17 +346,11 @@ class Dock:
         _, _, _, _, zone, moved = self._drag
         self._drag = None
         if moved:
-            # Settle inside the work area, then remember where it ended up. The idle pass is not
-            # optional: geometry() only queues the move, so reading the position straight after
-            # returns where the window still is and writes the pre-drag spot back to settings.
+            # snap_to_edge has already written the anchor. Reading the window back afterwards
+            # would overwrite it with the OPEN window's corner - 72px left and 24px up of where
+            # the closed pill belongs - and the dock walked that far off its edge on every grab.
             self.snap_to_edge()
             self._place()
-            try:
-                self.top.update_idletasks()
-            except Exception:
-                pass
-            self.settings["dock_x"] = self.top.winfo_x()
-            self.settings["dock_y"] = self.top.winfo_y()
             if self.on_moved:
                 self.on_moved()
             return

@@ -53,7 +53,7 @@ It only ever moves when you click it. Running from source, or on macOS, it opens
 
 Off by default; switch it on under **controller** in the window.
 
-A small capsule that sits above everything. Hover and it opens into two buttons — a frame for a screenshot, a red dot for a recording — and either one drops you straight into the region picker, same as the shortcut. Drag it by its grip and it parks against whichever screen edge you dropped it nearest, opening inward from there — the edge it sits on is the one that never moves.
+A small capsule that sits above everything. Hover and it opens into two buttons — a frame for a screenshot, a red dot for a recording — and either one drops you straight into the region picker, same as the shortcut. Drag it by its grip and it sticks to whichever edges you dropped it near — each axis snaps on its own, so the corners are reachable too. It opens inward from there, and the edge it sits on is the one that never moves.
 
 It never lands in its own captures: it goes off screen the moment a picker opens and comes back when the capture is done, including for the whole length of a recording. Clicking it does not steal focus either, so whatever you were looking at is still the thing you photograph.
 
