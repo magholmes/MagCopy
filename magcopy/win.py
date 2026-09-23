@@ -667,6 +667,28 @@ def set_overlay_styles(hwnd):
         return False
 
 
+def trim_memory():
+    """Hand resident pages back to Windows once a capture is over.
+
+    A screenshot builds a still of the whole desktop - on a two-monitor setup, well over 100 MB
+    of pixels - and frees it the moment the picker closes. Freed is not the same as returned: the
+    pages stay in this process's working set, so Task Manager goes on reporting the peak long
+    after the memory stopped being used. Trimming gives them back. Anything still needed is
+    soft-faulted in from the standby list on next touch, which costs microseconds a page and
+    happens while the next picker is being built anyway.
+    """
+    try:
+        k32.GetCurrentProcess.restype = w.HANDLE
+        k32.SetProcessWorkingSetSizeEx.argtypes = [w.HANDLE, ctypes.c_size_t, ctypes.c_size_t,
+                                                   w.DWORD]
+        k32.SetProcessWorkingSetSizeEx.restype = w.BOOL
+        minus_one = ctypes.c_size_t(-1).value
+        return bool(k32.SetProcessWorkingSetSizeEx(k32.GetCurrentProcess(), minus_one,
+                                                    minus_one, 0))
+    except Exception:
+        return False
+
+
 def allow_foreground():
     """Let the next process we start put itself in front of us.
 

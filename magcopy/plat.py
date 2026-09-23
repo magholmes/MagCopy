@@ -27,6 +27,12 @@ else:
 
 
 # ----------------------------------------------------------------------------- fallbacks
+if not hasattr(impl, "trim_memory"):
+    def trim_memory():
+        """Nothing to ask for here; the OS manages residency on its own."""
+        return False
+
+
 if not hasattr(impl, "combo_down"):
     def combo_down(combo=None):
         """No way to ask here, so say the keyboard is clear and arm immediately."""

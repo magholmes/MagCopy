@@ -98,6 +98,8 @@ class App:
         self._bind_hotkeys()
         # after the window exists, so the dock can measure a work area and sit on top of it
         root.after(120, self._sync_dock)
+        self._trim_job = None
+        self._schedule_trim(8000)
         self.tray = Tray(self._icon_path(), "%s %s" % (APP_NAME, APP_VERSION),
                          [("Open MagCopy", "open"), (None, None),
                           ("Screenshot to clipboard", "shot"), ("Record a GIF", "gif"),
@@ -235,6 +237,26 @@ class App:
             self.root.deiconify()
         if self.dock:
             self.dock.restore_after_capture()
+        self._schedule_trim()
+
+    def _schedule_trim(self, delay_ms=2500):
+        """Return idle memory to Windows once things have gone quiet.
+
+        Debounced: a burst of screenshots pays for none of this until the last one, and the page
+        faults it costs land while nothing is waiting on the app.
+        """
+        if getattr(self, "_trim_job", None):
+            try:
+                self.root.after_cancel(self._trim_job)
+            except Exception:
+                pass
+
+        def go():
+            self._trim_job = None
+            if self.busy or self.recorder or self.editor:
+                return                         # still working; the next quiet moment will do it
+            plat.trim_memory()
+        self._trim_job = self.root.after(delay_ms, go)
 
     def _sync_dock(self):
         """Create or remove the floating controller to match the setting."""
@@ -372,6 +394,7 @@ class App:
         self.recorder = None
         self.busy = False
         if rec.cancelled:
+            self._schedule_trim()
             return
         if rec.error:
             self.toast(rec.error, error=True)
@@ -385,6 +408,7 @@ class App:
     def editor_closed(self, editor):
         if self.editor is editor:
             self.editor = None
+        self._schedule_trim()
 
     def gif_saved(self, res):
         note = "%d × %d · %.2f MB" % (res.width, res.height, res.bytes / 1e6)

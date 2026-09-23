@@ -148,7 +148,11 @@ class RegionSelector:
             pw, ph = int(round(vw * self.pixel_scale)), int(round(vh * self.pixel_scale))
             bgra = plat.grab_once(vx, vy, vw, vh, cursor=False, retina=True)
             # PIL reads the BGRA buffer directly in BGRX raw mode, skipping a full-screen swap
-            self.bright_full = Image.frombuffer("RGB", (pw, ph), bgra.tobytes(), "raw", "BGRX", 0, 1)
+            # Straight from the array: .tobytes() made a second full copy of the desktop just to
+            # hand it over, and bgra itself stays alive until this method returns. On two monitors
+            # each of those is ~40 MB, and both sat on top of everything else at the peak.
+            self.bright_full = Image.frombuffer("RGB", (pw, ph), bgra, "raw", "BGRX", 0, 1)
+            del bgra
             self.bright = (self.bright_full.resize((vw, vh), Image.LANCZOS)
                            if (pw, ph) != (vw, vh) else self.bright_full)
             self._dim_photo = ImageTk.PhotoImage(self.bright.point(_lut(DIM)))
