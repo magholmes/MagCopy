@@ -189,11 +189,11 @@ _EXCLUDED = []                         # our own NSWindows, kept out of every ca
 def exclude_window(nswindow):
     """Keep one of our own windows out of everything we capture.
 
-    The Windows build cannot do this at all, and works around it by placing the recording border
-    as eight strips strictly outside the captured rectangle. Those strips are kept here - being
-    outside the rectangle is the belt to this brace - but a picker or a control bar that happens
-    to overlap the region no longer risks appearing in a frame. This applies to the recording
-    stream only; see `_filter_for`.
+    The recording border is eight strips placed strictly outside the captured rectangle on both
+    platforms - being outside the rectangle is the belt to this brace - but a picker or a control
+    bar that happens to overlap the region no longer risks appearing in a frame. Windows does the
+    same for its control bar through SetWindowDisplayAffinity; see win.exclude_window. This
+    applies to the recording stream only; see `_filter_for`.
 
     The cached display list is dropped at the same time: it carries the window list the capture
     filter is built from, and one taken a moment ago does not know about this window yet.

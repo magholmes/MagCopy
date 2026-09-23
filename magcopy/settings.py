@@ -12,7 +12,7 @@ import traceback
 
 IS_MAC = sys.platform == "darwin"
 APP_NAME = "MagCopy"
-APP_VERSION = "1.9"
+APP_VERSION = "1.10"
 FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = (os.path.dirname(os.path.abspath(sys.executable)) if FROZEN
            else os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

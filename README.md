@@ -83,7 +83,7 @@ You should usually send an MP4 instead — Discord autoplays them and they look 
 
 **Pacing,** borrowed from OBS: a 1 ms system timer on Windows, because the default 15.6 ms granularity can't pace 25 fps and frames arrive in clumps. Timing anchored to the wall clock, not a frame counter — an overrun repeats the previous frame instead of letting the recording slide out of sync. A 4-second capture at 25 fps lands 101 frames and drifts 40 ms on both platforms.
 
-**Capture.** Windows uses GDI, which can't see fullscreen-exclusive games; they come out black. macOS uses ScreenCaptureKit, which sees everything and can leave MagCopy's own windows out of the frame.
+**Capture.** Windows uses GDI, which can't see fullscreen-exclusive games; they come out black. macOS uses ScreenCaptureKit, which sees everything. Both leave MagCopy's own controls out of the frame — record the whole screen and the timer and stop button sit on top of it for you, and are absent from every frame of the GIF.
 
 **Rebinding a shortcut** takes the live ones off first, and doesn't arm the new one until the keys are up. Otherwise binding Ctrl+Space runs Ctrl+Space: a held key repeats, and a repeat is a key going down.
 

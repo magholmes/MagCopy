@@ -27,6 +27,15 @@ else:
 
 
 # ----------------------------------------------------------------------------- fallbacks
+if not hasattr(impl, "exclude_window"):
+    def exclude_window(handle):
+        """No way to keep a window out of captures here; placement has to do it."""
+        return False
+
+    def clear_excluded():
+        return False
+
+
 if not hasattr(impl, "trim_memory"):
     def trim_memory():
         """Nothing to ask for here; the OS manages residency on its own."""
@@ -56,13 +65,6 @@ if not IS_MAC:
     def scale_for(rect):
         """The Win32 layer already works in physical pixels, so there is nothing to scale."""
         return 1.0
-
-    def exclude_window(handle):
-        """No equivalent: the recording border is kept out of frame by being outside it."""
-        return False
-
-    def clear_excluded():
-        return False
 
     def set_window_shape(hwnd, width, height, rects):
         """No equivalent. The Windows chrome layer uses a colour key instead."""

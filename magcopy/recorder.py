@@ -57,6 +57,8 @@ class RecordFrame:
         self.s = scale
         self.windows = []
         self.bar = None
+        self.bar_excluded = False       # hidden from capture at the OS level
+        self.bar_where = ""             # where it ended up, for the log and the tests
         self.time_label = None
         self.dot = None
         self._dot_on = True
@@ -112,26 +114,66 @@ class RecordFrame:
             pass
         return w_
 
-    def _build_bar(self):
-        """Sits below the region, or above it when there is no room underneath."""
+    def _bar_spot(self, bw, bh, excluded):
+        """Where the bar goes: outside the region wherever there is room, inside only when safe.
+
+        Below, then above, then beside it, all on the region's own monitor and clear of its
+        taskbar. A recording of the whole screen leaves none of those, and the old last resort -
+        pinned to the top of the monitor - was simply inside the frame: the bar, its timer and its
+        stop button were recorded into the GIF. Now that last resort is taken only when the bar is
+        also excluded from capture, where it sits over the recording for the person making it and
+        is absent from every frame. On a Windows too old to exclude it, another monitor comes
+        first, and inside the region is left for the case where there is no other monitor at all.
+        """
         x, y, wd, ht = self.rect
         # the monitor the region is on, minus its taskbar - not the whole virtual desktop, or the
         # bar lands on another screen or underneath the taskbar
-        vx, vy, vw, vh = plat.work_area_for(self.rect)
+        area = plat.work_area_for(self.rect)
+        vx, vy, vw, vh = area
+        g, m = int(10 * self.s), 8
+        right_aligned = min(max(x + wd - bw, vx + m), vx + vw - bw - m)
+        beside_y = min(max(y, vy + m), vy + vh - bh - m)
+
+        def on(a, bx, by):
+            ax, ay, aw, ah = a
+            return ax + 2 <= bx and bx + bw <= ax + aw - 2 and ay + 2 <= by and by + bh <= ay + ah - 2
+
+        def clear(bx, by):
+            return bx + bw <= x or bx >= x + wd or by + bh <= y or by >= y + ht
+
+        for bx, by in ((right_aligned, y + ht + g),          # below
+                       (right_aligned, y - bh - g),          # above
+                       (x + wd + g, beside_y),               # to the right
+                       (x - bw - g, beside_y)):              # to the left
+            if on(area, bx, by) and clear(bx, by):
+                return bx, by, "outside"
+        inside = (min(max(x + wd - bw - m, vx + m), vx + vw - bw - m), max(vy + m, y + m))
+        if excluded:
+            return inside[0], inside[1], "inside, excluded from capture"
+        for mon in plat.monitors():            # (monitor rect, work area, ...) - index, never unpack
+            work = mon[1]
+            ax, ay, aw, ah = work
+            bx, by = ax + aw - bw - 16, ay + ah - bh - 16
+            if on(work, bx, by) and clear(bx, by):
+                return bx, by, "another monitor"
+        return inside[0], inside[1], "inside - will be recorded"
+
+    def _build_bar(self):
+        """The timer and stop/cancel, kept out of the recording by exclusion or by placement."""
         c, F = self.c, self.fonts
         bw, bh = int(250 * self.s), int(self.BAR_H * self.s)
-        bx = min(max(x + wd - bw, vx + 8), vx + vw - bw - 8)
-        by = y + ht + int(10 * self.s)
-        if by + bh > vy + vh - 8:
-            by = y - bh - int(10 * self.s)
-        if by < vy + 8:
-            by = vy + 8
 
         bar = tk.Toplevel(self.root)
         bar.withdraw()
         bar.overrideredirect(True)
         bar.attributes("-topmost", True)
         bar.configure(bg=c["bg"])
+        bar.update_idletasks()                 # the real window has to exist to be excluded
+        try:
+            self.bar_excluded = bool(plat.exclude_window(plat.toplevel_hwnd(bar)))
+        except Exception:
+            self.bar_excluded = False
+        bx, by, self.bar_where = self._bar_spot(bw, bh, self.bar_excluded)
         bar.geometry("%dx%d+%d+%d" % (bw, bh, bx, by))
         panel = Panel(bar)
         panel.configure(bg=c["bg"], highlightthickness=1, highlightbackground=c["hair"],
@@ -154,7 +196,10 @@ class RecordFrame:
             lb.bind("<Leave>", lambda e, l=lb, r=role: l.configure(fg=c[r]))
         bar.deiconify()
         try:                       # the bar takes clicks but must never pull focus off the
-            plat.set_overlay_styles(plat.toplevel_hwnd(bar))   # app being recorded
+            hwnd = plat.toplevel_hwnd(bar)                     # app being recorded
+            plat.set_overlay_styles(hwnd)
+            if self.bar_excluded:
+                plat.exclude_window(hwnd)      # again once mapped; the call is idempotent
         except Exception:
             pass
         self.bar = bar

@@ -667,6 +667,37 @@ def set_overlay_styles(hwnd):
         return False
 
 
+WDA_EXCLUDEFROMCAPTURE = 0x11
+
+
+def exclude_window(hwnd):
+    """Keep one of our windows out of every screen capture, while leaving it on screen.
+
+    SetWindowDisplayAffinity with WDA_EXCLUDEFROMCAPTURE, Windows 10 2004 onward. Verified against
+    the exact capture this app records with - a GDI BitBlt of the screen with CAPTUREBLT - not
+    only against the modern capture APIs: the window vanishes from the frame and what is behind
+    it shows through, while the person recording still sees it and can click it.
+
+    Never falls back to WDA_MONITOR. That older flag also hides the window from capture, but by
+    painting it solid black - a black box in the middle of the GIF instead of the control bar.
+    Returns False where exclusion is unavailable, so the caller can keep the window out of the
+    region by placement instead.
+    """
+    if not hwnd:
+        return False
+    try:
+        u32.SetWindowDisplayAffinity.argtypes = [w.HWND, w.DWORD]
+        u32.SetWindowDisplayAffinity.restype = w.BOOL
+        return bool(u32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE))
+    except Exception:
+        return False
+
+
+def clear_excluded():
+    """Nothing to clear: the affinity belongs to the window and goes when the window does."""
+    return True
+
+
 def trim_memory():
     """Hand resident pages back to Windows once a capture is over.
 
